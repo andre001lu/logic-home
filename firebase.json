@@ -1,0 +1,54 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "logichome-a9808",
+          "appId": "1:136254086669:android:aec21f419166e9a8d3bf44",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "logichome-a9808",
+          "configurations": {
+            "android": "1:136254086669:android:aec21f419166e9a8d3bf44",
+            "ios": "1:136254086669:ios:4331f520e46f6fc7d3bf44",
+            "macos": "1:136254086669:ios:4331f520e46f6fc7d3bf44",
+            "web": "1:136254086669:web:77b7b5fb6ebe229dd3bf44",
+            "windows": "1:136254086669:web:4f5f0934894a663fd3bf44"
+          }
+        }
+      }
+    }
+  },
+  "functions": [
+    {
+      "codebase": "default",
+      "disallowLegacyRuntimeConfig": true,
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "source": "functions"
+    }
+  ],
+  "hosting": {
+    "site": "app-logichome",
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

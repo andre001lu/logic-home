@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="1024" height="1024">
+  <!-- Fundo Preto Espacial -->
+  <rect width="512" height="512" fill="#030305"/>
+  
+  <!-- Escudo Azul (Primary) -->
+  <path d="M 256 40 L 440 120 L 440 256 C 440 380 256 480 256 480 C 256 480 72 380 72 256 L 72 120 Z" 
+        fill="none" stroke="#0D47A1" stroke-width="35" stroke-linejoin="round"/>
+  
+  <!-- Casa Ciano Neon (Accent) -->
+  <path d="M 150 300 L 256 200 L 362 300 L 362 380 L 150 380 Z" 
+        fill="none" stroke="#00E5FF" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Ponto Central Neon -->
+  <line x1="256" y1="200" x2="256" y2="310" stroke="#00E5FF" stroke-width="25" stroke-linecap="round"/>
+  <circle cx="256" cy="310" r="30" fill="#00E5FF"/>
+</svg>

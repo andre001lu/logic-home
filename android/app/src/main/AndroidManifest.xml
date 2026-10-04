@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- ====================================================================== -->
+    <!-- NOVO: PERMISSÕES PARA O SERVIÇO EM SEGUNDO PLANO (TRABALHADOR FANTASMA)-->
+    <!-- ====================================================================== -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    
+    <!-- ====================================================================== -->
+    <!-- MÁGICA: PERMISSÕES COMPLETAS DE BLUETOOTH (PORTÃO POR APROXIMAÇÃO)     -->
+    <!-- ====================================================================== -->
+    <!-- Para Android 11 e inferiores -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" /> <!-- MÁGICA: Permite ler o Bluetooth com o app no bolso -->
+    <!-- Para Android 12, 13 e superiores -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- ====================================================================== -->
+    
+    <!-- PERMISSÕES BÁSICAS -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- ====================================================================== -->
+    <!-- MÁGICA DA SIRENE: PERMISSÕES CRÍTICAS PARA ANDROID 12, 13 E 14+        -->
+    <!-- ====================================================================== -->
+    <!-- 1. Permite acender a tela do celular mesmo se ele estiver bloqueado -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- 2. Permite furar o modo "Não Perturbe" / Silencioso -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- 3. Exigência do plugin Local Notifications para rodar em background -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- ====================================================================== -->
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="isiclite" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
+    <application 
+        android:name="${applicationName}"
+        android:usesCleartextTraffic="true"
+        android:label="Logic Home"
+        android:icon="@mipmap/launcher_icon">
+        
+        <!-- METADADOS PARA O FIREBASE -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/launcher_icon" />
+            
+        <!-- TRAVA DE SEGURANÇA: Diz pro Firebase usar o canal padrão de recados (para não berrar sirene à toa) -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="logic_home_channel" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            
+            <meta-data
+                android:name="flutterEmbedding"
+                android:value="2" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="logichome.app" android:pathPrefix="/vip" />
+            </intent-filter>
+        </activity>
+        
+        <!-- OUVINTE DO FLUTTER LOCAL NOTIFICATIONS -->
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- ====================================================================== -->
+        <!-- MÁGICA: DECLARAÇÃO DO SERVIÇO FANTASMA (OBRIGATÓRIO PARA ANDROID 14+)  -->
+        <!-- ====================================================================== -->
+        <service
+            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:foregroundServiceType="connectedDevice"
+            android:exported="true" />
+
+    </application>
+</manifest>
