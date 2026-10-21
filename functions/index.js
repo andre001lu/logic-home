@@ -1315,6 +1315,7 @@ exports.processarFaturasLoteTask = onTaskDispatched({
                   batch.set(notifRef, {
                     sindico_vinculado: sindico_vinculado,
                     para: emailExibicaoApp,
+                    nome_destino: `Bloco ${dataUnidade.bloco} AP ${dataUnidade.ap} - ${dataUnidade.nome_proprietario}`,
                     titulo: '📄 FATURA EMITIDA',
                     mensagem: `A taxa do Bloco ${dataUnidade.bloco} AP ${dataUnidade.ap} foi enviada ao proprietário e está disponível no seu painel para visualização/pagamento.`,
                     data: admin.firestore.FieldValue.serverTimestamp(),
@@ -1424,6 +1425,7 @@ exports.gerarAcessoVip = onCall(async (request) => {
 
 /** ============================================================================
  * FUNÇÃO 18: completarCadastroMorador (SEGURANÇA: Fim do Ghost Login)
+ * BLINDADO CONTRA ARQUIVOS FALSOS E TAMANHO EXCESSIVO
  * ============================================================================ */
 exports.completarCadastroMorador = onCall(async (request) => {
   const { email, cpf, data_nascimento, tipo_ocupacao, foto_base64, sindico } = request.data;
@@ -1432,26 +1434,48 @@ exports.completarCadastroMorador = onCall(async (request) => {
     return { sucesso: false, erro: "Dados incompletos." };
   }
 
+  // 🛡️ BLINDAGEM 1: Limite de Tamanho (Protege a RAM do Servidor e o custo do Storage)
+  // 4.000.000 de caracteres Base64 equivalem a cerca de 3 MB (Mais do que suficiente pra uma selfie)
+  if (foto_base64.length > 4000000) {
+    throw new HttpsError("resource-exhausted", "Imagem muito grande. Limite de 3MB excedido.");
+  }
+
+  // 🛡️ BLINDAGEM 2: Verifica a "Assinatura" do arquivo (Anti-Malware/Fake JPG)
+  // Todo JPEG em Base64 SEMPRE começa com "/9j/"
+  if (!foto_base64.startsWith('/9j/')) {
+    throw new HttpsError("invalid-argument", "O arquivo enviado é malicioso ou não é uma foto JPEG válida.");
+  }
+
   try {
     const userRef = admin.firestore().collection('usuarios').doc(email);
     const userDoc = await userRef.get();
 
-    // Trava de Segurança: Só atualiza se o morador acabou de ser criado e está pendente
+    // 🛡️ BLINDAGEM 3: Só atualiza se o morador acabou de ser criado e está pendente
     if (!userDoc.exists || userDoc.data().status !== 'pendente') {
       throw new HttpsError("permission-denied", "Operação bloqueada. Usuário não pendente.");
     }
 
-    // Grava a foto diretamente pelo servidor (Poderes de Admin)
     const bucket = admin.storage().bucket();
     const buffer = Buffer.from(foto_base64, 'base64');
     const path = `biometria/${sindico}/${email}.jpg`;
     const file = bucket.file(path);
     
-    await file.save(buffer, { metadata: { contentType: 'image/jpeg' } });
-    
-    const fotoUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media`;
+    // MÁGICA DO TOKEN: Cria a senha de download para o App conseguir ler a foto!
+    const tokenAcesso = Math.random().toString(36).substring(2) + Date.now().toString(36);
 
-    // Conclui a injeção do CPF e da Foto
+    await file.save(buffer, { 
+      metadata: { 
+        contentType: 'image/jpeg',
+        metadata: {
+          firebaseStorageDownloadTokens: tokenAcesso // <--- Injeta o Token
+        }
+      } 
+    });
+    
+    // O link agora carrega o token, impedindo o "ícone corrompido"
+    const fotoUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${tokenAcesso}`;
+
+    // Conclui a injeção do CPF e da Foto no Banco
     await userRef.update({
       cpf: cpf || '',
       data_nascimento: data_nascimento || '',

@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously, curly_braces_in_flow_control_structures, avoid_print, use_null_aware_elements, prefer_final_fields, avoid_types_as_parameter_names, unnecessary_cast, unnecessary_const, unnecessary_underscores
+// ignore_for_file: use_build_context_synchronously, curly_braces_in_flow_control_structures, avoid_print, use_null_aware_elements, prefer_final_fields, avoid_types_as_parameter_names, unnecessary_cast, unnecessary_const, unnecessary_underscores, empty_catches
 
 // ============================================================================
 // PARTE 1 - CONFIGURAÇÕES GERAIS E COMPONENTES VISUAIS (CORE)
@@ -261,7 +261,7 @@ class _TelaMoradorOfflineState extends State<TelaMoradorOffline> {
                       await c.setNotifyValue(true);
                       String meuEmail = widget.userData['email'] ?? '';
                       String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-                      String pacoteCripto = Uri.encodeComponent(CryptoHelper.criptografar("$meuEmail;$timestamp")); 
+                      String pacoteCripto = Uri.encodeComponent(CryptoHelper.criptografar("$meuEmail;$timestamp;OFF")); 
                       String comandoSeguro = "SEC|$pacoteCripto|$rele";
                       
                       bool resolvido = false; StreamSubscription? notifySub;
@@ -505,7 +505,7 @@ class _TelaLoginState extends State<TelaLogin> {
         setState(() => _carregando = false);
         Widget telaDestino;
         if (data['perfil'] == 'morador') {
-          operadorLogado = data['nome'] ?? u;
+          operadorLogado = "${data['nome'] ?? u} (B: ${data['bloco'] ?? '-'} AP: ${data['ap'] ?? '-'})";
           bool aprovado = data['servico_ativo'] == true || data['status'] == 'aprovado';
           if (!aprovado) { telaDestino = TelaMorador(userData: data); } else if (widget.redirecionarParaAproximacao) { telaDestino = TelaAberturaPorAproximacao(userData: data); } else if (widget.redirecionarParaAvisos) { telaDestino = TelaMorador(userData: data, abaInicial: 6); } else if (widget.redirecionarParaEncomendas) { telaDestino = TelaMorador(userData: data, abaInicial: 2); } else if (widget.redirecionarParaFaturas) { telaDestino = TelaMorador(userData: data, abaInicial: 5); } else if (widget.redirecionarParaReservas) { telaDestino = TelaMorador(userData: data, abaInicial: 3); } else { telaDestino = TelaMorador(userData: data); }
         } else {
@@ -1511,7 +1511,7 @@ class _PainelEstruturalState extends State<PainelEstrutural> with WidgetsBinding
     try {
       if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS) && await Vibration.hasVibrator() == true) Vibration.vibrate(duration: 500);
       await registrarAuditoria(widget.emailSindico, "🚨 PÂNICO ACIONADO", "Segurança", "O operador $operadorLogado acionou o botão de pânico silencioso (Hardware).");
-      await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': widget.emailSindico, 'titulo': '🚨 ALERTA DE PÂNICO NA PORTARIA!', 'mensagem': 'O operador $operadorLogado acabou de acionar o botão de emergência silencioso. Verifique as câmeras e tente contato IMEDIATO.', 'data': FieldValue.serverTimestamp(), 'remetente': 'SISTEMA DE SEGURANÇA'});
+      await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': widget.emailSindico, 'nome_destino': 'Síndico', 'titulo': '🚨 ALERTA DE PÂNICO NA PORTARIA!', 'mensagem': 'O operador $operadorLogado acabou de acionar o botão de emergência silencioso. Verifique as câmeras e tente contato IMEDIATO.', 'data': FieldValue.serverTimestamp(), 'remetente': 'SISTEMA DE SEGURANÇA'});
       debugPrint("Pânico disparado com sucesso!");
     } catch (e) { debugPrint("Erro ao disparar pânico: $e"); }
     Future.delayed(const Duration(seconds: 30), () { if (mounted) setState(() => _panicoEmEspera = false); });
@@ -1712,10 +1712,23 @@ class _TelaMoradorState extends State<TelaMorador> with WidgetsBindingObserver {
     carregarMuralDeAvisos();
     _meuPedidoDeliveryStream = FirebaseFirestore.instance.collection('esperando_delivery').where('sindico_vinculado', isEqualTo: widget.userData['sindico_vinculado']).where('email', isEqualTo: widget.userData['email']).snapshots();
     _sessaoSub?.cancel(); 
-    _sessaoSub = FirebaseFirestore.instance.collection('usuarios').doc(widget.userData['email']).snapshots().listen((docSnap) {
-      if (docSnap.exists && pulseiraDaSessao.isNotEmpty && !(docSnap.data()?['sessoes_ativas'] ?? []).contains(pulseiraDaSessao)) {
-        FirebaseAuth.instance.signOut();
-        if (mounted) { Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const TelaLogin()), (_) => false); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sessão expirada. Você fez login em outro dispositivo."), backgroundColor: Colors.red, duration: Duration(seconds: 5))); }
+    _sessaoSub = FirebaseFirestore.instance.collection('usuarios').doc(widget.userData['email']).snapshots().listen((docSnap) async {
+      if (docSnap.exists) {
+        final newData = docSnap.data() as Map<String, dynamic>;
+        if (pulseiraDaSessao.isNotEmpty && !(newData['sessoes_ativas'] ?? []).contains(pulseiraDaSessao)) {
+          FirebaseAuth.instance.signOut();
+          if (mounted) { Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const TelaLogin()), (_) => false); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sessão expirada. Você fez login em outro dispositivo."), backgroundColor: Colors.red, duration: Duration(seconds: 5))); }
+        } else if (newData['foto_storage_url'] != widget.userData['foto_storage_url']) {
+          if (!kIsWeb) {
+            try {
+              final file = File('${(await getApplicationDocumentsDirectory()).path}/minha_foto_${widget.userData['email']}.jpg');
+              if (await file.exists()) await file.delete();
+            } catch (_) {}
+          }
+          if (mounted) {
+            setState(() { widget.userData['foto_storage_url'] = newData['foto_storage_url']; });
+          }
+        }
       }
     });
   }
@@ -1808,7 +1821,7 @@ class _TelaMoradorState extends State<TelaMorador> with WidgetsBindingObserver {
       if (!snap.hasData) return const Center(child: CircularProgressIndicator());
       if (snap.data!.docs.isEmpty) return const Center(child: Text("Nenhum portão disponível na memória."));
       HelperOffline.salvarPortoesNoCofre(snap.data!.docs.map((d) => (d.data() as Map<String, dynamic>)..['id_portao'] = d.id).toList());
-      return ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: snap.data!.docs.length, itemBuilder: (context, i) { final data = snap.data!.docs[i].data() as Map<String, dynamic>; return Card(margin: const EdgeInsets.only(bottom: 15), shape: RoundedRectangleBorder(side: const BorderSide(color: Colors.blue, width: 2), borderRadius: BorderRadius.circular(15)), child: ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), leading: const CircleAvatar(backgroundColor: Colors.blue, child: Icon(Icons.bluetooth, color: Colors.white)), title: Text(data['nome'].toString().toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), trailing: LogicNeonButton(corBase: Colors.blue.shade800, corBrilho: Colors.lightBlueAccent, onPressed: () => _abrirPortaoMorador(data, snap.data!.docs[i].id), child: const Text("ABRIR", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold))))); });
+      return ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: snap.data!.docs.length, itemBuilder: (context, i) { final data = snap.data!.docs[i].data() as Map<String, dynamic>; return Card(margin: const EdgeInsets.only(bottom: 15), shape: RoundedRectangleBorder(side: const BorderSide(color: Colors.blue, width: 2), borderRadius: BorderRadius.circular(15)), child: ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), leading: const CircleAvatar(backgroundColor: Colors.blue, child: Icon(Icons.bluetooth, color: Colors.white)), title: Text(data['nome'].toString().toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), trailing: LogicNeonButton(corBase: Colors.blue.shade800, corBrilho: Colors.lightBlueAccent, onPressed: () => _abrirPortaoMorador(data, snap.data!.docs[i].id, usarBluetooth: true), child: const Text("ABRIR", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold))))); });
     }))
   ]);
 
@@ -1879,7 +1892,7 @@ class _TelaMoradorState extends State<TelaMorador> with WidgetsBindingObserver {
                   for (final c in service.characteristics) {
                     if (c.uuid.toString() == "beb5483e-36e1-4688-b7f5-ea07361b26a8") {
                       try { await c.setNotifyValue(true); } catch (_) {}
-                      final comandoSeguro = "SEC|${Uri.encodeComponent(CryptoHelper.criptografar("${widget.userData['email'] ?? ''};${DateTime.now().millisecondsSinceEpoch}"))}|$rele";
+                      final comandoSeguro = "SEC|${Uri.encodeComponent(CryptoHelper.criptografar("${widget.userData['email'] ?? ''};${DateTime.now().millisecondsSinceEpoch};ONL"))}|$rele";
                       bool resolvido = false; String statusFinal = "TIMEOUT";
                       final notifySub = c.onValueReceived.listen((value) async {
                         final rep = utf8.decode(value);
@@ -1906,20 +1919,28 @@ class _TelaMoradorState extends State<TelaMorador> with WidgetsBindingObserver {
     } catch (_) { return "ERR"; }
   }
 
-  void _abrirPortaoMorador(Map<String, dynamic> dataPortao, String idPortao) async {
+  void _abrirPortaoMorador(Map<String, dynamic> dataPortao, String idPortao, {bool usarBluetooth = false}) async {
     mostrarBrilhoNeon(context);
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Aguarde..."), duration: Duration(seconds: 1)));
-    final statusBle = await _tentarBluetoothOculto(dataPortao['id_box'], dataPortao['codigo']);
-    if (statusBle == "OK") {
-      registrarAuditoria(widget.userData['sindico_vinculado'], "Abertura Bluetooth", "Acesso Mobile", "Portão ${dataPortao['nome']} acionado localmente por ${widget.userData['nome']}.").catchError((_) {});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.green, content: Text("Portão abrindo", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(usarBluetooth ? "Conectando via Bluetooth..." : "Enviando comando..."), duration: const Duration(seconds: 1)));
+    
+    if (usarBluetooth) {
+      final statusBle = await _tentarBluetoothOculto(dataPortao['id_box'], dataPortao['codigo']);
+      if (statusBle == "OK") {
+        registrarAuditoria(widget.userData['sindico_vinculado'], "Abertura Bluetooth", "Acesso Mobile", "Portão ${dataPortao['nome']} acionado localmente por ${widget.userData['nome']}.").catchError((_) {});
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.green, content: Text("Portão abrindo", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))));
+      } else if (statusBle == "MOV") {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.orange, content: Text("Aguarde! Portão já está em movimento.", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))));
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.red, content: Text("Portão fora de alcance Bluetooth.")));
+      }
       return; 
     }
+
     bool temInternet = true;
-    if (!kIsWeb) { // Pula o teste de DNS se for Web
-      try { if ((await InternetAddress.lookup('google.com')).isEmpty) temInternet = false; } catch (_) { temInternet = false; }
+    if (!kIsWeb) { 
+      try { if ((await InternetAddress.lookup('google.com').timeout(const Duration(seconds: 2))).isEmpty) temInternet = false; } catch (_) { temInternet = false; }
     }
-    if (!temInternet) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.orange, content: Text("Portão fora de alcance e sem internet.", style: TextStyle(color: Colors.white)), duration: Duration(seconds: 4))); return; }
+    if (!temInternet) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.orange, content: Text("Sem internet. Use o botão de Bluetooth ao lado.", style: TextStyle(color: Colors.white)), duration: Duration(seconds: 4))); return; }
     
     final tempoAbertura = dataPortao['tempo_abertura'] ?? 15;
     if (dataPortao['ultima_abertura'] != null && DateTime.now().difference((dataPortao['ultima_abertura'] as Timestamp).toDate()).inSeconds.abs() < tempoAbertura) {
@@ -1981,7 +2002,7 @@ class _TelaMoradorState extends State<TelaMorador> with WidgetsBindingObserver {
             if (!snap.hasData) return const Center(child: CircularProgressIndicator());
             if (snap.data!.docs.isEmpty) return const Center(child: Text("Nenhum portão liberado para uso via app."));
             HelperOffline.salvarPortoesNoCofre(snap.data!.docs.map((d) => (d.data() as Map<String, dynamic>)..['id_portao'] = d.id).toList());
-            return ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: snap.data!.docs.length, itemBuilder: (context, i) { final data = snap.data!.docs[i].data() as Map<String, dynamic>; return Card(margin: const EdgeInsets.only(bottom: 10), child: ListTile(leading: const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.door_sliding, color: Colors.white)), title: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(data['nome'].toString().toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold))), subtitle: Padding(padding: const EdgeInsets.only(top: 15, bottom: 5), child: SliderAbrirPortao(nomePortao: data['nome'], onSlid: () => _abrirPortaoMorador(data, snap.data!.docs[i].id))))); });
+            return ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: snap.data!.docs.length, itemBuilder: (context, i) { final data = snap.data!.docs[i].data() as Map<String, dynamic>; return Card(margin: const EdgeInsets.only(bottom: 10), child: ListTile(leading: const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.door_sliding, color: Colors.white)), title: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(data['nome'].toString().toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold))), subtitle: Padding(padding: const EdgeInsets.only(top: 15, bottom: 5), child: SliderAbrirPortao(nomePortao: data['nome'], onSlid: () => _abrirPortaoMorador(data, snap.data!.docs[i].id), onBluetoothPressed: () => _abrirPortaoMorador(data, snap.data!.docs[i].id, usarBluetooth: true))))); });
           }))
         ]);
       }
@@ -2679,6 +2700,7 @@ class GerenciadorDeTunel {
           String rele = request.uri.queryParameters['rele'] ?? '';
           
           String email = "";
+          bool isOffline = false;
 
           // MÁGICA SUPREMA: Descriptografa o código alienígena para barrar hackers e "Replay Attacks"
           String descriptografado = CryptoHelper.descriptografar(payloadCripto);
@@ -2687,6 +2709,7 @@ class GerenciadorDeTunel {
              List<String> partes = descriptografado.split(';');
              email = partes[0];
              int timestampRequisicao = int.tryParse(partes[1]) ?? 0;
+             if (partes.length > 2 && partes[2] == "OFF") isOffline = true;
              int timestampAtual = DateTime.now().millisecondsSinceEpoch;
              
              // Tolerância rigorosa de 30 segundos (30.000 ms). Mata o Replay Attack via limite de tempo!
@@ -2746,30 +2769,36 @@ class GerenciadorDeTunel {
                   _ultimaAberturaReleLocal[rele] = agora;
                   request.response.statusCode = 200; // 200 = APROVADO!
                   request.response.write("OK");
-                  debugPrint("✅ [SERVIDOR LOCAL] Respondeu: APROVADO!");
+                  await request.response.close();
+                  debugPrint("✅ [SERVIDOR LOCAL] Respondeu: APROVADO e Portão Aberto!");
                   
-                  // MÁGICA 2: O Computador avisa a Nuvem que o portão abriu (Anti-Colisão 4G Global)
-                  FirebaseFirestore.instance.collection('portoes')
-                      .where('sindico_vinculado', isEqualTo: _sindicoAtivo)
-                      .where('codigo', isEqualTo: rele)
-                      .get().then((snap) {
-                        if (snap.docs.isNotEmpty) {
-                          for (var d in snap.docs) {
-                            d.reference.update({'ultima_abertura': FieldValue.serverTimestamp()}).then((_) {}, onError: (_) {});
-                          }
-                        }
-                      }).then((_) {}, onError: (_) {});
+                  // MÁGICA 2: O Computador tenta descobrir o nome do portão (Com ou Sem internet)
+                  String nomeDoPortaoEncontrado = "Relé $rele";
+                  try {
+                    final snapPortao = await FirebaseFirestore.instance.collection('portoes').where('sindico_vinculado', isEqualTo: _sindicoAtivo).where('codigo', isEqualTo: rele).get();
+                    if (snapPortao.docs.isNotEmpty) {
+                      nomeDoPortaoEncontrado = snapPortao.docs.first.data()['nome'] ?? "Relé $rele";
+                      for (var d in snapPortao.docs) {
+                        d.reference.update({'ultima_abertura': FieldValue.serverTimestamp()}).catchError((_) {});
+                      }
+                    }
+                  } catch (e) {
+                    debugPrint("⚠️ Sem internet para buscar o nome do portão. Usando o nome padrão.");
+                  }
                   
-                  // MÁGICA 3: O Computador assume a Auditoria do App! Se estiver offline, salva no HD.
-                  FirebaseFirestore.instance.collection('auditoria').add({
-                    'sindico_vinculado': _sindicoAtivo,
-                    'operador': data['nome'] ?? email,
-                    'acao': 'Abertura Bluetooth (Aproximação/Offline)',
-                    'modulo': 'Controle de Acessos',
-                    'detalhes': 'Morador aprovado pelo Servidor Local (Relé: $rele).',
-                    'data_hora': FieldValue.serverTimestamp(),
-                    'plataforma': 'Servidor Windows',
-                  }).then((_) {}, onError: (_) {});
+                  // MÁGICA 3: O Computador grava a auditoria APENAS se o morador estiver 100% offline.
+                  // Evita logs duplicados, pois se ele estiver online, o próprio celular dele gravará a auditoria "Abertura Bluetooth".
+                  if (isOffline) {
+                    FirebaseFirestore.instance.collection('auditoria').add({
+                      'sindico_vinculado': _sindicoAtivo,
+                      'operador': data['nome'] ?? email,
+                      'acao': 'Validação de Bluetooth (Servidor Local)',
+                      'modulo': 'Controle de Acessos',
+                      'detalhes': 'O Servidor da Portaria validou a credencial do morador (Portão: $nomeDoPortaoEncontrado).',
+                      'data_hora': FieldValue.serverTimestamp(),
+                      'plataforma': 'Servidor Windows',
+                    }).then((_) {}).catchError((_) {});
+                  }
                 }
               } else {
                 request.response.statusCode = 403; // 403 = NEGADO/BLOQUEADO!
@@ -2879,7 +2908,7 @@ class GerenciadorDeTunel {
       final pastaLogicHome = Directory('${(await getApplicationDocumentsDirectory()).path}\\LogicHomeApp');
       if (!await File('${pastaLogicHome.path}\\logichome_video.exe').exists()) return;
       final snapCameras = await FirebaseFirestore.instance.collection('cameras').where('sindico_vinculado', isEqualTo: _sindicoAtivo).get();
-      final ymlContent = StringBuffer("api: yes\napiAddress: 127.0.0.1:9997\nhlsAddress: 127.0.0.1:8888\nhlsAlwaysRemux: yes\nhlsVariant: mpegts\nrtspAddress: 127.0.0.1:8555\nrtmpAddress: 127.0.0.1:1936\nwebrtcAddress: 127.0.0.1:8892\nwebrtcLocalUDPAddress: 127.0.0.1:8195\nrtpAddress: 127.0.0.1:8002\nrtcpAddress: 127.0.0.1:8003\npaths:\n");
+      final ymlContent = StringBuffer("api: yes\napiAddress: 127.0.0.1:9997\nhlsAddress: 127.0.0.1:8888\nhlsAlwaysRemux: yes\nhlsVariant: lowLatency\nhlsSegmentDuration: 1s\nrtspAddress: 127.0.0.1:8555\nrtmpAddress: 127.0.0.1:1936\nwebrtcAddress: 127.0.0.1:8892\nwebrtcLocalUDPAddress: 127.0.0.1:8195\nrtpAddress: 127.0.0.1:8002\nrtcpAddress: 127.0.0.1:8003\npaths:\n");
       if (snapCameras.docs.isEmpty) ymlContent.write("  all:\n"); else {
         for (var doc in snapCameras.docs) {
           final data = doc.data(); String senhaPlayer = data['senha'] ?? '';
@@ -3206,7 +3235,7 @@ class _TelaPortoesState extends State<TelaPortoes> {
       if (ipLocal.isNotEmpty) {
         final responseLogin = await http.post(Uri.parse('http://$ipLocal/login.fcgi'), headers: {'Content-Type': 'application/json', 'Connection': 'close'}, body: jsonEncode({"login": dataPlaca['usuario'] ?? 'admin', "password": dataPlaca['senha_criptografada']?.isNotEmpty == true ? CryptoHelper.descriptografar(dataPlaca['senha_criptografada']) : ''})).timeout(const Duration(milliseconds: 2500));
         if (responseLogin.statusCode == 200 && (await http.post(Uri.parse('http://$ipLocal/execute_actions.fcgi?session=${jsonDecode(responseLogin.body)['session']}'), headers: {'Content-Type': 'application/json', 'Connection': 'close'}, body: jsonEncode({"actions": [{"action": "sec_box", "parameters": "id=$rele, reason=3"}, {"action": "door", "parameters": "door=$rele"}]})).timeout(const Duration(milliseconds: 2500))).statusCode == 200) {
-          sucessoLocal = true; registrarAuditoria(widget.emailSindico, "Abertura de Portão (Rede Local)", "Controle de Acessos", "Portão $nome acionado.").then((_) {}, onError: (_) {});
+          sucessoLocal = true; registrarAuditoria(widget.emailSindico, "Abertura de Portão (Rede Local)", "Controle de Acessos", "Portão $nome acionado.").catchError((_) => null);
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.green, content: Text("Portão abrindo", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))));
         }
       }
@@ -3216,7 +3245,7 @@ class _TelaPortoesState extends State<TelaPortoes> {
       try {
         final token = FirebaseAuth.instance.currentUser != null ? await FirebaseAuth.instance.currentUser!.getIdToken() : '';
         if ((await http.post(Uri.parse('https://us-central1-logichome-a9808.cloudfunctions.net/solicitarAberturaPortao'), headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'}, body: jsonEncode({'data': {'id_dispositivo': idBox, 'id_portao': idPortao, 'rele': rele, 'operador': operadorLogado}}))).statusCode == 200) {
-          registrarAuditoria(widget.emailSindico, "Abertura de Portão (Nuvem Fallback)", "Controle de Acessos", "Portão $nome acionado via 4G.").then((_) {}, onError: (_) {});
+          registrarAuditoria(widget.emailSindico, "Abertura de Portão (Nuvem Fallback)", "Controle de Acessos", "Portão $nome acionado via 4G.").catchError((_) => null);
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.green, content: Text("Portão abrindo", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))));
         } else throw Exception("Falha na nuvem.");
       } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.red, content: Text("Falha ao comunicar com o portão.", style: TextStyle(color: Colors.white)))); }
@@ -3296,7 +3325,16 @@ class _PlayerCameraRealState extends State<PlayerCameraReal> {
   Player? _player; VideoController? _controller;
 
   @override
-  void initState() { super.initState(); if (!kIsWeb) { _player = Player()..open(Media(widget.url))..play(); _controller = VideoController(_player!); } }
+  void initState() {
+    super.initState();
+    if (!kIsWeb) {
+      // Reduz o buffer do player para 1MB, forçando carregamento quase instantâneo na rede local
+      _player = Player(configuration: const PlayerConfiguration(bufferSize: 1024 * 1024));
+      _player!.open(Media(widget.url));
+      _player!.play();
+      _controller = VideoController(_player!);
+    }
+  }
   @override
   void dispose() { if (!kIsWeb) _player?.dispose(); super.dispose(); }
 
@@ -3328,7 +3366,9 @@ class _PlayerIntelbrasState extends State<PlayerIntelbras> {
     if (_isDisposed) return;
     try {
       final url = 'rtsp://${Uri.encodeComponent(widget.usuario)}:${Uri.encodeComponent(widget.senha)}@${widget.ip}:${widget.portaRtsp}/cam/realmonitor?channel=${widget.canal}&subtype=${widget.altaQualidade ? '0' : '1'}';
-      _player = Player(); _videoController = VideoController(_player!);
+      // Reduz o buffer do player para 1MB, cortando o delay artificial de carregamento RTSP
+      _player = Player(configuration: const PlayerConfiguration(bufferSize: 1024 * 1024)); 
+      _videoController = VideoController(_player!);
       _player!.stream.error.listen((_) { if (mounted && !_isDisposed) _engatilharReconexao("Erro de Rede"); });
       _player!.stream.playing.listen((isPlaying) { if (mounted && _isInitializing && isPlaying) { setState(() { _isInitializing = false; _hasError = false; }); _iniciarWatchdogAntiCongelamento(); } });
       _player!.open(Media(url)); Future.delayed(const Duration(milliseconds: 100), () { if (mounted && _player != null && !_isDisposed) _player!.play(); });
@@ -3642,9 +3682,9 @@ class _DialogRecebimentoLoteState extends State<DialogRecebimentoLote> {
       }
 
       if (destinatarioIndireto) {
-        if (moradorCheck.docs.isNotEmpty) for (var docM in moradorCheck.docs) await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': (docM.data()['email'] ?? docM.id).toString().toLowerCase().trim(), 'titulo': '📦 ENCOMENDA NA PORTARIA!', 'mensagem': 'Vocês receberam ${pacotesDoAp.length} pacote(s) via ${_empresaCtrl.text.trim()}. Acesse o app para ver o PIN de retirada.', 'data': FieldValue.serverTimestamp(), 'remetente': 'Portaria', 'tipo_acao': 'acao_avisos'});
+        if (moradorCheck.docs.isNotEmpty) for (var docM in moradorCheck.docs) await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': (docM.data()['email'] ?? docM.id).toString().toLowerCase().trim(), 'nome_destino': 'Bloco $b AP $a - ${docM.data()['nome'] ?? ''}', 'titulo': '📦 ENCOMENDA NA PORTARIA!', 'mensagem': 'Vocês receberam ${pacotesDoAp.length} pacote(s) via ${_empresaCtrl.text.trim()}. Acesse o app para ver o PIN de retirada.', 'data': FieldValue.serverTimestamp(), 'remetente': 'Portaria', 'tipo_acao': 'acao_avisos'});
       } else if (emailOficialMorador.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': emailOficialMorador.toLowerCase().trim(), 'titulo': '📦 ENCOMENDA NA PORTARIA!', 'mensagem': 'Você recebeu ${pacotesDoAp.length} pacote(s) via ${_empresaCtrl.text.trim()}. Acesse o app para ver o seu PIN de retirada.', 'data': FieldValue.serverTimestamp(), 'remetente': 'Portaria', 'tipo_acao': 'acao_avisos'});
+        await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': emailOficialMorador.toLowerCase().trim(), 'nome_destino': 'Bloco $b AP $a - $nomeOficialMorador', 'titulo': '📦 ENCOMENDA NA PORTARIA!', 'mensagem': 'Você recebeu ${pacotesDoAp.length} pacote(s) via ${_empresaCtrl.text.trim()}. Acesse o app para ver o seu PIN de retirada.', 'data': FieldValue.serverTimestamp(), 'remetente': 'Portaria', 'tipo_acao': 'acao_avisos'});
       }
     }
 
@@ -3894,7 +3934,8 @@ void _editarEncomenda(DocumentSnapshot doc) {
 
 class DialogCapturaCamera extends StatefulWidget {
   final String titulo;
-  const DialogCapturaCamera({super.key, required this.titulo});
+  final bool forcarCameraFrontal;
+  const DialogCapturaCamera({super.key, required this.titulo, this.forcarCameraFrontal = false});
   @override
   State<DialogCapturaCamera> createState() => _DialogCapturaCameraState();
 }
@@ -3912,11 +3953,21 @@ class _DialogCapturaCameraState extends State<DialogCapturaCamera> {
     try {
       _cameras = await availableCameras();
       if (_cameras.isEmpty) { if (mounted) { Navigator.pop(context, null); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Nenhuma webcam detectada!"), backgroundColor: Colors.red)); } return; }
-      final prefs = await SharedPreferences.getInstance();
-      final camIdSalva = prefs.getString('cam_id');
-      _isLocked = prefs.getBool('cam_locked') ?? false;
-      _cameraSelecionada = camIdSalva != null ? _cameras.firstWhere((c) => c.name == camIdSalva, orElse: () => _cameras.first) : _cameras.first;
-      if (_isLocked) await _ligarCamera(_cameraSelecionada!); else setState(() => _isInitializing = false);
+      
+      if (widget.forcarCameraFrontal) {
+         try {
+           _cameraSelecionada = _cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.front);
+         } catch (_) {
+           _cameraSelecionada = _cameras.first;
+         }
+         await _ligarCamera(_cameraSelecionada!);
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final camIdSalva = prefs.getString('cam_id');
+        _isLocked = prefs.getBool('cam_locked') ?? false;
+        _cameraSelecionada = camIdSalva != null ? _cameras.firstWhere((c) => c.name == camIdSalva, orElse: () => _cameras.first) : _cameras.first;
+        if (_isLocked) await _ligarCamera(_cameraSelecionada!); else setState(() => _isInitializing = false);
+      }
     } catch (_) { if (mounted) Navigator.pop(context, null); }
   }
 
@@ -3957,9 +4008,11 @@ class _DialogCapturaCameraState extends State<DialogCapturaCamera> {
     return AlertDialog(
       title: FittedBox(fit: BoxFit.scaleDown, child: Text(widget.titulo)),
       content: SizedBox(width: 550, child: Column(mainAxisSize: MainAxisSize.min, children: [
-        if (!_isLocked) Row(children: [Expanded(child: DropdownButtonFormField<CameraDescription>(isExpanded: true, initialValue: _cameraSelecionada, decoration: const InputDecoration(labelText: "Selecione a Câmera", border: OutlineInputBorder()), items: _cameras.map((c) => DropdownMenuItem(value: c, child: Text(c.name))).toList(), onChanged: (v) { if (v != null) { setState(() => _cameraSelecionada = v); _ligarCamera(v); } })), const SizedBox(width: 10), IconButton(icon: Icon(Icons.lock_open, color: colorScheme.secondary, size: 30), tooltip: "Travar Escolha", onPressed: () { if (_cameraSelecionada != null) { setState(() => _isLocked = true); _salvarPreferencias(); if (_controller == null || !_controller!.value.isInitialized) _ligarCamera(_cameraSelecionada!); } })])
-        else Row(children: [const Icon(Icons.lock, color: Colors.green), const SizedBox(width: 10), Expanded(child: Text("Câmera Padrão: ${_cameraSelecionada?.name}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green))), TextButton(onPressed: () { setState(() => _isLocked = false); _salvarPreferencias(); }, child: const Text("DESTRAVAR"))]),
-        const SizedBox(height: 15),
+        if (!widget.forcarCameraFrontal) ...[
+          if (!_isLocked) Row(children: [Expanded(child: DropdownButtonFormField<CameraDescription>(isExpanded: true, initialValue: _cameraSelecionada, decoration: const InputDecoration(labelText: "Selecione a Câmera", border: OutlineInputBorder()), items: _cameras.map((c) => DropdownMenuItem(value: c, child: Text(c.name))).toList(), onChanged: (v) { if (v != null) { setState(() => _cameraSelecionada = v); _ligarCamera(v); } })), const SizedBox(width: 10), IconButton(icon: Icon(Icons.lock_open, color: colorScheme.secondary, size: 30), tooltip: "Travar Escolha", onPressed: () { if (_cameraSelecionada != null) { setState(() => _isLocked = true); _salvarPreferencias(); if (_controller == null || !_controller!.value.isInitialized) _ligarCamera(_cameraSelecionada!); } })])
+          else Row(children: [const Icon(Icons.lock, color: Colors.green), const SizedBox(width: 10), Expanded(child: Text("Câmera Padrão: ${_cameraSelecionada?.name}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green))), TextButton(onPressed: () { setState(() => _isLocked = false); _salvarPreferencias(); }, child: const Text("DESTRAVAR"))]),
+          const SizedBox(height: 15),
+        ],
         Container(height: 300, width: double.infinity, clipBehavior: Clip.antiAlias, decoration: BoxDecoration(border: Border.all(color: colorScheme.primary, width: 2), borderRadius: BorderRadius.circular(10)), child: _isInitializing ? const Center(child: CircularProgressIndicator()) : (_controller != null && _controller!.value.isInitialized && !_capturando) ? CameraPreview(_controller!) : const Center(child: Text("Processando foto..."))),
         if (_capturando) ...[const SizedBox(height: 15), const CircularProgressIndicator(), const SizedBox(height: 10), FittedBox(fit: BoxFit.scaleDown, child: Text("Otimizando e salvando imagem...", style: TextStyle(color: colorScheme.primary, fontWeight: FontWeight.bold)))]
       ])),
@@ -4011,19 +4064,7 @@ class _TelaGestaoFacialState extends State<TelaGestaoFacial> with WidgetsBinding
   }
 
   Future<void> _buscarMaisAntigosNaNuvem() async {
-    setState(() => _buscandoNuvem = true);
-    try {
-      final comData = _moradoresCache.where((m) => m['data_aprovacao'] != null).toList()..sort((a, b) => (b['data_aprovacao'] as Timestamp).compareTo(a['data_aprovacao'] as Timestamp));
-      final dataMaisVelha = comData.isNotEmpty ? comData.last['data_aprovacao'] as Timestamp : null;
-      var query = FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').orderBy('data_aprovacao', descending: true).limit(30);
-      if (dataMaisVelha != null) query = query.where('data_aprovacao', isLessThan: dataMaisVelha);
-      final snap = await query.get();
-      if (snap.docs.isNotEmpty) {
-        for (final doc in snap.docs) { final data = doc.data()..['id'] = doc.id; if (!_moradoresCache.any((m) => m['id'] == doc.id)) _moradoresCache.add(data); }
-        if (mounted) setState(() {}); _salvarCacheLocal(_moradoresCache);
-      }
-    } catch (_) {}
-    if (mounted) setState(() => _buscandoNuvem = false);
+    // Obsoleto: O novo stream inteligente já traz todos os moradores em tempo real.
   }
 
   Future<void> _salvarCacheLocal(List<Map<String, dynamic>> lista) async {
@@ -4042,39 +4083,43 @@ class _TelaGestaoFacialState extends State<TelaGestaoFacial> with WidgetsBinding
         _moradoresCache = snap.docs.map((d) => d.data()..['id'] = d.id).toList();
         if (mounted) setState(() => _carregandoMoradores = false); await _salvarCacheLocal(_moradoresCache); return;
       }
+      
       String jsonString = "";
       if (kIsWeb) jsonString = (await SharedPreferences.getInstance()).getString('bio_delta_${widget.emailSindico}') ?? "";
       else { final file = File('${(await getApplicationDocumentsDirectory()).path}/bio_delta_${widget.emailSindico}.json'); if (await file.exists()) jsonString = await file.readAsString(); }
       if (jsonString.isNotEmpty) {
         _moradoresCache = (jsonDecode(jsonString) as List).map((item) { final mapa = Map<String, dynamic>.from(item); if (mapa['data_aprovacao'] != null && mapa['data_aprovacao'] is String) mapa['data_aprovacao'] = Timestamp.fromDate(DateTime.parse(mapa['data_aprovacao'])); return mapa; }).toList();
+        if (mounted) setState(() => _carregandoMoradores = false);
       }
-      if (mounted) setState(() => _carregandoMoradores = false);
-      
-      final comData = _moradoresCache.where((m) => m['data_aprovacao'] != null).toList()..sort((a, b) => (b['data_aprovacao'] as Timestamp).compareTo(a['data_aprovacao'] as Timestamp));
-      final ultimaData = comData.isNotEmpty ? comData.first['data_aprovacao'] as Timestamp : null;
-      if (ultimaData == null) {
-        if (mounted) setState(() => _buscandoNuvem = true);
-        final snapInicial = await FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').orderBy('data_aprovacao', descending: true).limit(30).get();
-        for (final doc in snapInicial.docs) _moradoresCache.add(doc.data()..['id'] = doc.id);
-        if (mounted) setState(() => _buscandoNuvem = false); await _salvarCacheLocal(_moradoresCache);
-      } else {
-        final snapNovos = await FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').where('data_aprovacao', isGreaterThan: ultimaData).get();
-        final snapExcluidos = await FirebaseFirestore.instance.collection('pedidos_exclusao').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('colecao', isEqualTo: 'usuarios').where('data_exclusao', isGreaterThan: ultimaData).get();
-        bool alterou = false;
-        if (snapNovos.docs.isNotEmpty) { for (final doc in snapNovos.docs) { final data = doc.data()..['id'] = doc.id; final index = _moradoresCache.indexWhere((v) => v['id'] == doc.id); if (index != -1) _moradoresCache[index] = data; else _moradoresCache.insert(0, data); alterou = true; } }
-        if (snapExcluidos.docs.isNotEmpty) { for (final doc in snapExcluidos.docs) { final idExcluido = doc.data()['doc_id']; final int idxRem = _moradoresCache.indexWhere((v) => v['id'] == idExcluido); if (idxRem != -1) { _moradoresCache.removeAt(idxRem); alterou = true; } } }
-        if (alterou) { if (mounted) setState(() {}); await _salvarCacheLocal(_moradoresCache); }
-      }
+
       _novosAprovadosSub?.cancel();
-      _novosAprovadosSub = FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').where('data_aprovacao', isGreaterThan: Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 2)))).snapshots().listen((snap) {
-        bool alterou = false;
-        for (final change in snap.docChanges) {
-          final data = change.doc.data()!..['id'] = change.doc.id; final index = _moradoresCache.indexWhere((v) => v['id'] == change.doc.id);
-          if (change.type == DocumentChangeType.added || change.type == DocumentChangeType.modified) { if (index != -1) _moradoresCache[index] = data; else _moradoresCache.insert(0, data); alterou = true; } else if (change.type == DocumentChangeType.removed) { if (index != -1) { _moradoresCache.removeAt(index); alterou = true; } }
-        }
-        if (alterou) { if (mounted) setState(() {}); _salvarCacheLocal(_moradoresCache); }
+      _novosAprovadosSub = FirebaseFirestore.instance.collection('usuarios')
+        .where('sindico_vinculado', isEqualTo: widget.emailSindico)
+        .where('perfil', isEqualTo: 'morador')
+        .snapshots().listen((snap) {
+          bool alterou = false;
+          for (final change in snap.docChanges) {
+            final data = change.doc.data()!..['id'] = change.doc.id; 
+            final index = _moradoresCache.indexWhere((v) => v['id'] == change.doc.id);
+            if (change.type == DocumentChangeType.added || change.type == DocumentChangeType.modified) { 
+              if (index != -1) _moradoresCache[index] = data; 
+              else _moradoresCache.insert(0, data); 
+              alterou = true; 
+            } else if (change.type == DocumentChangeType.removed) { 
+              if (index != -1) { _moradoresCache.removeAt(index); alterou = true; } 
+            }
+          }
+          if (alterou || _carregandoMoradores) { 
+             if (mounted) setState(() => _carregandoMoradores = false); 
+             _salvarCacheLocal(_moradoresCache); 
+          }
+      }, onError: (e) {
+          debugPrint("Erro no stream de biometria: $e");
+          if (mounted) setState(() => _carregandoMoradores = false);
       });
-    } catch (_) { if (mounted) setState(() => _carregandoMoradores = false); }
+    } catch (e) { 
+      if (mounted) setState(() => _carregandoMoradores = false);
+    }
   }
 
   @override
@@ -4154,7 +4199,7 @@ class _TelaGestaoFacialState extends State<TelaGestaoFacial> with WidgetsBinding
         return ListView.builder(controller: _scrollController, padding: const EdgeInsets.all(16), itemCount: listaPaginada.length + (_buscandoNuvem ? 1 : 0), itemBuilder: (context, index) {
           if (index == listaPaginada.length) return const Padding(padding: EdgeInsets.symmetric(vertical: 20), child: Center(child: Column(children: [CircularProgressIndicator(), SizedBox(height: 10), Text("Buscando mais antigos na nuvem...", style: TextStyle(color: Colors.grey))])));
           final data = listaPaginada[index], temFoto = data['foto_storage_url'] != null, sincronizado = data['sincronizado_catraca'] == true;
-          return Card(elevation: 2, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(12.0), child: Wrap(spacing: 15, crossAxisAlignment: WrapCrossAlignment.center, children:[Container(width: 80, height: 80, decoration: BoxDecoration(color: colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(10)), clipBehavior: Clip.antiAlias, child: temFoto ? Image.network(data['foto_storage_url'], fit: BoxFit.cover) : Icon(Icons.person, size: 50, color: colorScheme.onSurfaceVariant)), SizedBox(width: 180, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children:[FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(data['nome'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))), FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text("B: ${data['bloco']} | AP: ${data['ap']}", style: TextStyle(color: colorScheme.onSurfaceVariant))), const SizedBox(height: 5), if (!temFoto) const FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text("🔴 Nenhuma foto cadastrada", style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold))) else if (!sincronizado) const FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text("🟡 Foto pendente de envio para catraca", style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold))) else const FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text("🟢 Ativo na Catraca", style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)))])), Column(key: index == 0 ? keyTutBioSync : null, crossAxisAlignment: CrossAxisAlignment.end, children:[FittedBox(fit: BoxFit.scaleDown, child: ElevatedButton.icon(key: index == 0 ? keyTutBioFoto : null, style: ElevatedButton.styleFrom(backgroundColor: temFoto ? colorScheme.secondaryContainer : colorScheme.primary, foregroundColor: temFoto ? colorScheme.onSecondaryContainer : colorScheme.onPrimary), icon: Icon(temFoto ? Icons.replay : Icons.camera_alt, size: 16), label: Text(temFoto ? "Refazer Foto" : "Enviar Foto"), onPressed: () => _capturarESalvarFoto(data))), if (temFoto) ...[const SizedBox(height: 5), Row(mainAxisSize: MainAxisSize.min, children:[FittedBox(fit: BoxFit.scaleDown, child: ElevatedButton.icon(style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), icon: const Icon(Icons.sync, size: 16), label: const Text("Sincronizar"), onPressed: () => _sincronizarComEquipamentos(data, data['foto_storage_url']))), const SizedBox(width: 5), IconButton(icon: Icon(Icons.delete, color: colorScheme.error), tooltip: "Apagar", onPressed: () => _removerFoto(data))])]])])));
+          return Card(elevation: 2, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(12.0), child: Wrap(spacing: 15, crossAxisAlignment: WrapCrossAlignment.center, children:[Container(width: 80, height: 80, decoration: BoxDecoration(color: colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(10)), clipBehavior: Clip.antiAlias, child: temFoto ? Image.network(data['foto_storage_url'], fit: BoxFit.cover, errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.grey)) : Icon(Icons.person, size: 50, color: colorScheme.onSurfaceVariant)), SizedBox(width: 180, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children:[FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(data['nome'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))), FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text("B: ${data['bloco']} | AP: ${data['ap']}", style: TextStyle(color: colorScheme.onSurfaceVariant))), const SizedBox(height: 5), if (!temFoto) const FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text("🔴 Nenhuma foto cadastrada", style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold))) else if (!sincronizado) const FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text("🟡 Foto pendente de envio para catraca", style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold))) else const FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text("🟢 Ativo na Catraca", style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)))])), Column(key: index == 0 ? keyTutBioSync : null, crossAxisAlignment: CrossAxisAlignment.end, children:[FittedBox(fit: BoxFit.scaleDown, child: ElevatedButton.icon(key: index == 0 ? keyTutBioFoto : null, style: ElevatedButton.styleFrom(backgroundColor: temFoto ? colorScheme.secondaryContainer : colorScheme.primary, foregroundColor: temFoto ? colorScheme.onSecondaryContainer : colorScheme.onPrimary), icon: Icon(temFoto ? Icons.replay : Icons.camera_alt, size: 16), label: Text(temFoto ? "Refazer Foto" : "Enviar Foto"), onPressed: () => _capturarESalvarFoto(data))), if (temFoto) ...[const SizedBox(height: 5), Row(mainAxisSize: MainAxisSize.min, children:[FittedBox(fit: BoxFit.scaleDown, child: ElevatedButton.icon(style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), icon: const Icon(Icons.sync, size: 16), label: const Text("Sincronizar"), onPressed: () => _sincronizarComEquipamentos(data, data['foto_storage_url']))), const SizedBox(width: 5), IconButton(icon: Icon(Icons.delete, color: colorScheme.error), tooltip: "Apagar", onPressed: () => _removerFoto(data))])]])])));
         });
       }))
     ]);
@@ -4325,7 +4370,7 @@ class _TelaVisitantesState extends State<TelaVisitantes> with WidgetsBindingObse
                       final blocoM = (m.data()['bloco'] ?? '').toString().toUpperCase(), apM = (m.data()['ap'] ?? '').toString().toUpperCase();
                       if (apM.isEmpty) continue;
                       if ((pedacos.contains(apM) || destinoUpper.contains(apM)) && (blocoM.isEmpty || pedacos.contains(blocoM) || destinoUpper.contains("BLOCO $blocoM") || destinoUpper.contains("BL $blocoM"))) {
-                        await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': (m.data()['email'] ?? m.id).toString().toLowerCase().trim(), 'titulo': '🚶 VISITA LIBERADA', 'mensagem': "${nomeC.text.toUpperCase()} passou pela portaria e está a caminho do seu apartamento.", 'data': FieldValue.serverTimestamp(), 'remetente': 'Portaria', 'tipo_acao': 'acao_avisos'});
+                        await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': (m.data()['email'] ?? m.id).toString().toLowerCase().trim(), 'nome_destino': 'Bloco ${m.data()['bloco']} AP ${m.data()['ap']} - ${m.data()['nome']}', 'titulo': '🚶 VISITA LIBERADA', 'mensagem': "${nomeC.text.toUpperCase()} passou pela portaria e está a caminho do seu apartamento.", 'data': FieldValue.serverTimestamp(), 'remetente': 'Portaria', 'tipo_acao': 'acao_avisos'});
                       }
                     }
                   } catch (_) {}
@@ -4422,7 +4467,7 @@ class _TelaVisitantesState extends State<TelaVisitantes> with WidgetsBindingObse
               batch.update(refVip, {'status': 'utilizado', 'data_utilizacao': FieldValue.serverTimestamp()});
               batch.set(FirebaseFirestore.instance.collection('visitantes').doc(), {'sindico_vinculado': widget.emailSindico, 'nome': dataVip['nome_visitante'], 'documento': dataVip['documento'], 'tipo': 'visita', 'destino': "Bloco ${dataVip['bloco']} / AP ${dataVip['ap']}", 'veiculo': veiculo ? dataVip['modelo_cor'] : '', 'placa': veiculo ? dataVip['placa'] : '', 'observacao': 'Auto-cadastro VIP via Link (Morador: ${dataVip['morador_autorizou']})${veiculo && vaga.isNotEmpty ? ' | Vaga: $vaga' : ''}', 'entrada': FieldValue.serverTimestamp(), 'saida': null, 'operador_registro': operadorLogado, 'foto_doc_url': fotoCaminhoOuUrl});
               final moradoresSnap = await FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').where('bloco', isEqualTo: dataVip['bloco']).where('ap', isEqualTo: dataVip['ap']).get();
-              for (var docM in moradoresSnap.docs) batch.set(FirebaseFirestore.instance.collection('notificacoes').doc(), {'sindico_vinculado': widget.emailSindico, 'para': (docM.data()['email'] ?? docM.id).toString().toLowerCase().trim(), 'titulo': '🚶 VISITA LIBERADA (VIP)', 'mensagem': "${dataVip['nome_visitante']} acessou a portaria e está a caminho do seu apartamento.", 'data': FieldValue.serverTimestamp(), 'remetente': 'Portaria Automática', 'tipo_acao': 'acao_avisos'});
+              for (var docM in moradoresSnap.docs) batch.set(FirebaseFirestore.instance.collection('notificacoes').doc(), {'sindico_vinculado': widget.emailSindico, 'para': (docM.data()['email'] ?? docM.id).toString().toLowerCase().trim(), 'nome_destino': 'Bloco ${docM.data()['bloco']} AP ${docM.data()['ap']} - ${docM.data()['nome']}', 'titulo': '🚶 VISITA LIBERADA (VIP)', 'mensagem': "${dataVip['nome_visitante']} acessou a portaria e está a caminho do seu apartamento.", 'data': FieldValue.serverTimestamp(), 'remetente': 'Portaria Automática', 'tipo_acao': 'acao_avisos'});
               await batch.commit(); await registrarAuditoria(widget.emailSindico, "Entrada VIP Liberada", "Visitantes", "${dataVip['nome_visitante']} acessou usando PIN.");
               if (mounted) { Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Acesso Registrado! O morador foi notificado no celular."), backgroundColor: Colors.green)); }
             } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(TratamentoDeErros.traduzir(e)), backgroundColor: Colors.red)); }
@@ -4447,7 +4492,7 @@ class _TelaVisitantesState extends State<TelaVisitantes> with WidgetsBindingObse
             return Padding(padding: const EdgeInsets.only(right: 10), child: LogicNeonButton(corBase: colorScheme.primary, corBrilho: colorScheme.primary, onPressed: () async {
                showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text("Notificar Morador"), content: Text("O entregador do(a) $desc para $nomeAp chegou?"), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCELAR", style: TextStyle(color: Colors.grey))), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), onPressed: () async {
                  Navigator.pop(ctx);
-                 try { await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': dataLanche['email'] ?? '', 'titulo': '🍔 O ENTREGADOR CHEGOU!', 'mensagem': 'A sua entrega ($desc) já está na portaria te esperando. Por favor, desça para retirar.', 'data': FieldValue.serverTimestamp(), 'remetente': operadorLogado, 'tipo_acao': 'acao_avisos', 'ocultar_do_historico': true}); await docLanche.reference.delete(); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Morador notificado via App!"), backgroundColor: Colors.green)); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao notificar: $e"), backgroundColor: Colors.red)); }
+                 try { await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': dataLanche['email'] ?? '', 'nome_destino': 'Bloco ${dataLanche['bloco']} AP ${dataLanche['ap']} - ${dataLanche['nome']}', 'titulo': '🍔 O ENTREGADOR CHEGOU!', 'mensagem': 'A sua entrega ($desc) já está na portaria te esperando. Por favor, desça para retirar.', 'data': FieldValue.serverTimestamp(), 'remetente': operadorLogado, 'tipo_acao': 'acao_avisos', 'ocultar_do_historico': true}); await docLanche.reference.delete(); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Morador notificado via App!"), backgroundColor: Colors.green)); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro ao notificar: $e"), backgroundColor: Colors.red)); }
                }, child: const Text("SIM, AVISAR"))]));
             }, child: Row(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.notifications_active, color: Colors.white, size: 18), const SizedBox(width: 8), Text("AP ${dataLanche['ap']} - $desc", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))])));
           }))
@@ -4584,7 +4629,7 @@ class _TelaGestaoMoradoresState extends State<TelaGestaoMoradores> with WidgetsB
   bool _carregandoMoradores = true, _buscandoNuvem = false, _fimDaLista = false, _carregandoAuditoria = true, _buscandoNuvemAuditoria = false, _fimDaListaAuditoria = false;
   int _limiteVisivel = 30;
   final _scrollControllerMoradores = ScrollController(), _scrollControllerAuditoria = ScrollController();
-  StreamSubscription<QuerySnapshot>? _novosMoradoresSub, _novasAuditoriasSub;
+  StreamSubscription<QuerySnapshot>? _novosMoradoresSub, _pendentesSub, _novasAuditoriasSub, _exclusoesSub;
   Timer? _debounceBuscaMoradores;
 
   void _modalEditarMenusPorteiro(DocumentSnapshot doc) {
@@ -4604,7 +4649,7 @@ class _TelaGestaoMoradoresState extends State<TelaGestaoMoradores> with WidgetsB
   Future<void> _reconectarBancoDeDados() async { try { await FirebaseAuth.instance.currentUser?.getIdToken(true); setState(() { _initStreams(); _carregarMoradoresDeltaSync(); _carregarAuditoriaDeltaSync(); }); } catch (_) {} }
 
   @override
-  void dispose() { WidgetsBinding.instance.removeObserver(this); _scrollControllerMoradores.dispose(); _scrollControllerAuditoria.dispose(); _novosMoradoresSub?.cancel(); _novasAuditoriasSub?.cancel(); _debounceBuscaMoradores?.cancel(); super.dispose(); }
+  void dispose() { WidgetsBinding.instance.removeObserver(this); _scrollControllerMoradores.dispose(); _scrollControllerAuditoria.dispose(); _novosMoradoresSub?.cancel(); _pendentesSub?.cancel(); _novasAuditoriasSub?.cancel(); _exclusoesSub?.cancel(); _debounceBuscaMoradores?.cancel(); super.dispose(); }
 
   Future<void> _salvarCacheAuditoria(List<Map<String, dynamic>> lista) async { try { final jsonStr = jsonEncode(lista.map((item) => item.map((k, v) => MapEntry(k, v is Timestamp ? v.toDate().toIso8601String() : v))).toList()); if (kIsWeb) await (await SharedPreferences.getInstance()).setString('auditoria_delta_${widget.emailSindico}', jsonStr); else await File('${(await getApplicationDocumentsDirectory()).path}/auditoria_delta_${widget.emailSindico}.json').writeAsString(jsonStr); } catch (_) {} }
 
@@ -4649,46 +4694,48 @@ class _TelaGestaoMoradoresState extends State<TelaGestaoMoradores> with WidgetsB
 
   Future<void> _carregarMoradoresDeltaSync() async {
     try {
+      // 1. Carrega do cache local para a tela abrir piscar rápido
       String jsonString = ""; if (kIsWeb) jsonString = (await SharedPreferences.getInstance()).getString('gestao_morador_${widget.emailSindico}') ?? ""; else { final file = File('${(await getApplicationDocumentsDirectory()).path}/gestao_morador_${widget.emailSindico}.json'); if (await file.exists()) jsonString = await file.readAsString(); }
-      if (jsonString.isNotEmpty) _moradoresCache = (jsonDecode(jsonString) as List).map((item) { final mapa = Map<String, dynamic>.from(item); if (mapa['data_aprovacao'] != null && mapa['data_aprovacao'] is String) mapa['data_aprovacao'] = Timestamp.fromDate(DateTime.parse(mapa['data_aprovacao'])); return mapa; }).toList();
-      if (mounted) setState(() => _carregandoMoradores = false);
-
-      Timestamp? ultimaData; final comData = _moradoresCache.where((m) => m['data_aprovacao'] != null).toList();
-      if (comData.isNotEmpty) { comData.sort((a, b) => (b['data_aprovacao'] as Timestamp).compareTo(a['data_aprovacao'] as Timestamp)); ultimaData = comData.first['data_aprovacao'] as Timestamp; }
-
-      if (ultimaData == null) {
-        if (mounted) setState(() => _buscandoNuvem = true);
-        for (var doc in (await FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').limit(50).get()).docs) _moradoresCache.add(doc.data()..['id'] = doc.id);
-        if (mounted) setState(() => _buscandoNuvem = false); await _salvarCacheMoradores(_moradoresCache);
-      } else {
-        final snapNovos = await FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').where('data_aprovacao', isGreaterThan: ultimaData).get();
-        final snapExcluidos = await FirebaseFirestore.instance.collection('pedidos_exclusao').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('colecao', isEqualTo: 'usuarios').where('data_exclusao', isGreaterThan: ultimaData).get();
-        bool alterou = false;
-        if (snapNovos.docs.isNotEmpty) { for (var doc in snapNovos.docs) { final data = doc.data()..['id'] = doc.id; final idx = _moradoresCache.indexWhere((v) => v['id'] == doc.id); if (idx != -1) _moradoresCache[idx] = data; else _moradoresCache.insert(0, data); alterou = true; } }
-        if (snapExcluidos.docs.isNotEmpty) { for (var doc in snapExcluidos.docs) { final idExcluido = doc.data()['doc_id']; final int idxRem = _moradoresCache.indexWhere((v) => v['id'] == idExcluido); if (idxRem != -1) { _moradoresCache.removeAt(idxRem); alterou = true; } } }
-        if (alterou) { if (mounted) setState(() {}); await _salvarCacheMoradores(_moradoresCache); }
+      if (jsonString.isNotEmpty) {
+         _moradoresCache = (jsonDecode(jsonString) as List).map((item) { final mapa = Map<String, dynamic>.from(item); if (mapa['data_registro'] != null && mapa['data_registro'] is String) mapa['data_registro'] = Timestamp.fromDate(DateTime.parse(mapa['data_registro'])); return mapa; }).toList();
+         if (mounted) setState(() => _carregandoMoradores = false);
       }
 
+      // 2. MÁGICA: Escuta TUDO em tempo real com uma regra simples que NUNCA dá erro de índice!
+      // Pendentes, aprovados e removidos atualizam no exato milissegundo.
       _novosMoradoresSub?.cancel();
-      _novosMoradoresSub = FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').where('data_aprovacao', isGreaterThan: Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 2)))).snapshots().listen((snap) {
-        bool alterou = false;
-        for (var change in snap.docChanges) { final data = change.doc.data()!..['id'] = change.doc.id; final idx = _moradoresCache.indexWhere((v) => v['id'] == change.doc.id); if (change.type == DocumentChangeType.added || change.type == DocumentChangeType.modified) { if (idx != -1) _moradoresCache[idx] = data; else _moradoresCache.insert(0, data); alterou = true; } else if (change.type == DocumentChangeType.removed && idx != -1) { _moradoresCache.removeAt(idx); alterou = true; } }
-        if (alterou) { if (mounted) setState(() {}); _salvarCacheMoradores(_moradoresCache); }
+      _novosMoradoresSub = FirebaseFirestore.instance.collection('usuarios')
+        .where('sindico_vinculado', isEqualTo: widget.emailSindico)
+        .where('perfil', isEqualTo: 'morador')
+        .snapshots().listen((snap) {
+          bool alterou = false;
+          for (var change in snap.docChanges) { 
+            final data = change.doc.data()!..['id'] = change.doc.id; 
+            final idx = _moradoresCache.indexWhere((v) => v['id'] == change.doc.id); 
+            if (change.type == DocumentChangeType.added || change.type == DocumentChangeType.modified) { 
+              if (idx != -1) _moradoresCache[idx] = data; 
+              else _moradoresCache.insert(0, data); 
+              alterou = true; 
+            } else if (change.type == DocumentChangeType.removed && idx != -1) { 
+              _moradoresCache.removeAt(idx); 
+              alterou = true; 
+            } 
+          }
+          if (alterou || _carregandoMoradores) { 
+            if (mounted) setState(() => _carregandoMoradores = false); 
+            _salvarCacheMoradores(_moradoresCache); 
+          }
+      }, onError: (e) {
+         debugPrint("Erro no stream instantâneo de moradores: $e");
+         if (mounted) setState(() => _carregandoMoradores = false);
       });
     } catch (_) { if (mounted) setState(() => _carregandoMoradores = false); }
   }
 
   Future<void> _buscarMaisAntigosNaNuvemMoradores() async {
-    setState(() => _buscandoNuvem = true);
-    try {
-      final comData = _moradoresCache.where((m) => m['data_aprovacao'] != null).toList()..sort((a, b) => (b['data_aprovacao'] as Timestamp).compareTo(a['data_aprovacao'] as Timestamp));
-      final dataMaisVelha = comData.isNotEmpty ? comData.last['data_aprovacao'] as Timestamp : null;
-      var query = FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').limit(30);
-      if (dataMaisVelha != null) query = query.where('data_aprovacao', isLessThan: dataMaisVelha).orderBy('data_aprovacao', descending: true);
-      final snap = await query.get();
-      if (snap.docs.isNotEmpty) { for (var doc in snap.docs) { final data = doc.data()..['id'] = doc.id; if (!_moradoresCache.any((m) => m['id'] == doc.id)) _moradoresCache.add(data); } if (mounted) setState(() {}); _salvarCacheMoradores(_moradoresCache); } else _fimDaLista = true;
-    } catch (_) {}
-    if (mounted) setState(() => _buscandoNuvem = false);
+    // Obsoleto: O novo stream inteligente já traz todos os moradores em tempo real.
+    // Apenas finalizamos a lista para a interface entender que acabou.
+    setState(() => _fimDaLista = true);
   }
 
   void _aoDigitarBuscaMoradores(String valor) {
@@ -4786,15 +4833,15 @@ class _TelaGestaoMoradoresState extends State<TelaGestaoMoradores> with WidgetsB
           final blocosSet = _moradoresCache.map((d) => pad((d['bloco'] ?? '').toString())).toSet().toList()..removeWhere((b) => b.isEmpty)..sort();
           if (blocosSet.isEmpty) return const Center(child: Text("Nenhum morador no condomínio."));
           return GridView.builder(padding: const EdgeInsets.all(16), gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 200, childAspectRatio: 1.2, crossAxisSpacing: 10, mainAxisSpacing: 10), itemCount: blocosSet.length, itemBuilder: (context, index) {
-            final bloco = blocosSet[index], qtdMoradores = _moradoresCache.where((d) => pad((d['bloco'] ?? '').toString()) == bloco).length, pendentes = _moradoresCache.where((d) => pad((d['bloco'] ?? '').toString()) == bloco && d['status'] == 'pendente').length;
-            return InkWell(onTap: () => setState(() => blocoSelecionadoMorador = bloco), child: Card(color: colorScheme.primaryContainer, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: colorScheme.primary.withValues(alpha:0.3))), child: Column(mainAxisAlignment: MainAxisAlignment.center, children:[Icon(Icons.business, size: 50, color: colorScheme.primary), const SizedBox(height: 10), FittedBox(fit: BoxFit.scaleDown, child: Text("Bloco $bloco", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorScheme.onPrimaryContainer))), FittedBox(fit: BoxFit.scaleDown, child: Text("$qtdMoradores Morador(es)", style: TextStyle(color: colorScheme.onPrimaryContainer.withValues(alpha:0.7)))), if (pendentes > 0) Container(margin: const EdgeInsets.only(top: 5), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: colorScheme.error, borderRadius: BorderRadius.circular(5)), child: Text("$pendentes pendente(s)", style: TextStyle(color: colorScheme.onError, fontSize: 10, fontWeight: FontWeight.bold)))])));
+            final bloco = blocosSet[index], qtdMoradores = _moradoresCache.where((d) => pad((d['bloco'] ?? '').toString()) == bloco).length, pendentes = _moradoresCache.where((d) => pad((d['bloco'] ?? '').toString()) == bloco && d['status'] == 'pendente').length, temPendente = pendentes > 0;
+            return InkWell(onTap: () => setState(() => blocoSelecionadoMorador = bloco), child: Card(color: temPendente ? Colors.orange.shade800 : colorScheme.primaryContainer, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: temPendente ? Colors.orangeAccent : colorScheme.primary.withValues(alpha:0.3), width: temPendente ? 2 : 1)), child: Column(mainAxisAlignment: MainAxisAlignment.center, children:[Icon(Icons.business, size: 50, color: temPendente ? Colors.white : colorScheme.primary), const SizedBox(height: 10), FittedBox(fit: BoxFit.scaleDown, child: Text("Bloco $bloco", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: temPendente ? Colors.white : colorScheme.onPrimaryContainer))), FittedBox(fit: BoxFit.scaleDown, child: Text("$qtdMoradores Morador(es)", style: TextStyle(color: temPendente ? Colors.white70 : colorScheme.onPrimaryContainer.withValues(alpha:0.7)))), if (temPendente) Container(margin: const EdgeInsets.only(top: 5), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(5)), child: Text("$pendentes PENDENTE(S)", style: TextStyle(color: Colors.orange.shade900, fontSize: 11, fontWeight: FontWeight.bold)))])));
           });
         }
         if (busca.isEmpty && apSelecionadoMorador == null) {
           final apsCache = _moradoresCache.where((d) => pad((d['bloco'] ?? '').toString()) == blocoSelecionadoMorador).toList(), apsSet = apsCache.map((d) => pad((d['ap'] ?? '').toString())).toSet().toList()..removeWhere((a) => a.isEmpty)..sort();
           return GridView.builder(padding: const EdgeInsets.all(16), gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 150, childAspectRatio: 1.0, crossAxisSpacing: 10, mainAxisSpacing: 10), itemCount: apsSet.length, itemBuilder: (context, index) {
-            final ap = apsSet[index], qtdMoradores = apsCache.where((d) => pad((d['ap'] ?? '').toString()) == ap).length, pendentes = apsCache.where((d) => pad((d['ap'] ?? '').toString()) == ap && d['status'] == 'pendente').length;
-            return InkWell(onTap: () => setState(() => apSelecionadoMorador = ap), child: Card(color: colorScheme.surface, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: colorScheme.outlineVariant)), child: Column(mainAxisAlignment: MainAxisAlignment.center, children:[Icon(Icons.meeting_room, size: 40, color: colorScheme.onSurfaceVariant), const SizedBox(height: 10), FittedBox(fit: BoxFit.scaleDown, child: Text("AP $ap", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorScheme.onSurface))), FittedBox(fit: BoxFit.scaleDown, child: Text("$qtdMoradores Morador(es)", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12))), if (pendentes > 0) Container(margin: const EdgeInsets.only(top: 5), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: colorScheme.error, borderRadius: BorderRadius.circular(5)), child: Text("$pendentes pendente(s)", style: TextStyle(color: colorScheme.onError, fontSize: 10, fontWeight: FontWeight.bold)))])));
+            final ap = apsSet[index], qtdMoradores = apsCache.where((d) => pad((d['ap'] ?? '').toString()) == ap).length, pendentes = apsCache.where((d) => pad((d['ap'] ?? '').toString()) == ap && d['status'] == 'pendente').length, temPendente = pendentes > 0;
+            return InkWell(onTap: () => setState(() => apSelecionadoMorador = ap), child: Card(color: temPendente ? Colors.orange.shade800 : colorScheme.surface, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: temPendente ? Colors.orangeAccent : colorScheme.outlineVariant, width: temPendente ? 2 : 1)), child: Column(mainAxisAlignment: MainAxisAlignment.center, children:[Icon(Icons.meeting_room, size: 40, color: temPendente ? Colors.white : colorScheme.onSurfaceVariant), const SizedBox(height: 10), FittedBox(fit: BoxFit.scaleDown, child: Text("AP $ap", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: temPendente ? Colors.white : colorScheme.onSurface))), FittedBox(fit: BoxFit.scaleDown, child: Text("$qtdMoradores Morador(es)", style: TextStyle(color: temPendente ? Colors.white70 : colorScheme.onSurfaceVariant, fontSize: 12))), if (temPendente) Container(margin: const EdgeInsets.only(top: 5), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(5)), child: Text("$pendentes PENDENTE(S)", style: TextStyle(color: Colors.orange.shade900, fontSize: 11, fontWeight: FontWeight.bold)))])));
           });
         }
         final listaM = _moradoresCache.where((m) {
@@ -4870,6 +4917,52 @@ class _TelaCadastroSindicoState extends State<TelaCadastroSindico> {
   String _idCondominioGerado = "", _codigoVerificacaoCorreto = "";
 
   @override
+  void initState() {
+    super.initState();
+    _carregarRascunho();
+  }
+
+  Future<void> _carregarRascunho() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final str = prefs.getString('rascunho_sindico');
+      if (str != null) {
+        final data = jsonDecode(str);
+        if (DateTime.now().millisecondsSinceEpoch - (data['timestamp'] ?? 0) < 3600000) {
+          setState(() {
+            _condominioCtrl.text = data['condominio'] ?? '';
+            _nomeCtrl.text = data['nome'] ?? '';
+            _cpfCnpjCtrl.text = data['cpf'] ?? '';
+            _telefoneCtrl.text = data['telefone'] ?? '';
+            _emailCtrl.text = data['email'] ?? '';
+            _senhaCtrl.text = data['senha'] ?? '';
+            _codigoVerificacaoCorreto = data['codigo'] ?? '';
+            _aceitouTermos = true;
+            _etapa = 1;
+          });
+        } else {
+          prefs.remove('rascunho_sindico');
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _salvarRascunho() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('rascunho_sindico', jsonEncode({
+        'condominio': _condominioCtrl.text, 'nome': _nomeCtrl.text, 'cpf': _cpfCnpjCtrl.text,
+        'telefone': _telefoneCtrl.text, 'email': _emailCtrl.text, 'senha': _senhaCtrl.text,
+        'codigo': _codigoVerificacaoCorreto, 'timestamp': DateTime.now().millisecondsSinceEpoch
+      }));
+    } catch (_) {}
+  }
+
+  Future<void> _limparRascunho() async {
+    try { (await SharedPreferences.getInstance()).remove('rascunho_sindico'); } catch (_) {}
+  }
+
+  @override
   void dispose() { _condominioCtrl.dispose(); _nomeCtrl.dispose(); _telefoneCtrl.dispose(); _emailCtrl.dispose(); _senhaCtrl.dispose(); _codigoDigitadoCtrl.dispose(); _cpfCnpjCtrl.dispose(); super.dispose(); }
 
   Future<void> _enviarCodigo() async {
@@ -4878,7 +4971,10 @@ class _TelaCadastroSindicoState extends State<TelaCadastroSindico> {
     if (!_aceitouTermos) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Você precisa aceitar os Termos de Uso."))); return; }
     setState(() => _carregando = true);
     final resposta = await HelperEmail.enviarCodigo(emailDestino: _emailCtrl.text.trim().toLowerCase(), nome: _nomeCtrl.text.trim(), perfil: 'sindico');
-    if (resposta['status'] == 'sucesso') setState(() { _codigoVerificacaoCorreto = resposta['codigo_gerado']; _etapa = 1; _carregando = false; }); else { setState(() => _carregando = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(TratamentoDeErros.traduzir(resposta['erro'] ?? "Erro ao enviar e-mail.")), backgroundColor: Colors.red)); }
+    if (resposta['status'] == 'sucesso') {
+      setState(() { _codigoVerificacaoCorreto = resposta['codigo_gerado']; _etapa = 1; _carregando = false; });
+      await _salvarRascunho();
+    } else { setState(() => _carregando = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(TratamentoDeErros.traduzir(resposta['erro'] ?? "Erro ao enviar e-mail.")), backgroundColor: Colors.red)); }
   }
 
   Future<void> _validarECriarConta() async {
@@ -4890,6 +4986,7 @@ class _TelaCadastroSindicoState extends State<TelaCadastroSindico> {
       if (!mounted) return;
       if (resultado['sucesso'] == true) {
         try { await FirebaseFirestore.instance.collection('usuarios').doc(_emailCtrl.text.trim().toLowerCase()).update({'cpf_cnpj': _cpfCnpjCtrl.text.trim().replaceAll(RegExp(r'[^0-9]'), '')}); } catch(_) {}
+        await _limparRascunho();
         setState(() { _etapa = 2; _carregando = false; });
       } else { setState(() => _carregando = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(TratamentoDeErros.traduzir(resultado['erro'])), backgroundColor: Colors.red)); }
     } catch (e) { setState(() => _carregando = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(TratamentoDeErros.traduzir(e)), backgroundColor: Colors.red)); }
@@ -4920,7 +5017,7 @@ class _TelaCadastroSindicoState extends State<TelaCadastroSindico> {
     Icon(Icons.mark_email_read, size: 60, color: colorScheme.secondary), const SizedBox(height: 20), const Text("Verifique seu E-mail", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)), const SizedBox(height: 10), Text("Enviamos um código de 6 dígitos para:\n${_emailCtrl.text}", textAlign: TextAlign.center, style: TextStyle(color: colorScheme.onSurfaceVariant)), const SizedBox(height: 30),
     TextField(controller: _codigoDigitadoCtrl, keyboardType: TextInputType.number, maxLength: 6, textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 10), decoration: const InputDecoration(hintText: "000000", border: OutlineInputBorder(), counterText: "")), const SizedBox(height: 30),
     _carregando ? const Center(child: CircularProgressIndicator()) : LogicNeonButton(fullWidth: true, corBase: Colors.green, corBrilho: Colors.greenAccent, onPressed: _validarECriarConta, child: const Text("VALIDAR E CRIAR CONTA", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))), const SizedBox(height: 15),
-    TextButton(onPressed: () => setState(() { _etapa = 0; _codigoDigitadoCtrl.clear(); }), child: const Text("Voltar e corrigir e-mail"))
+    TextButton(onPressed: () { _limparRascunho(); setState(() { _etapa = 0; _codigoDigitadoCtrl.clear(); }); }, child: const Text("Voltar e corrigir e-mail"))
   ]);
 
   Widget _buildSucesso(ColorScheme colorScheme) => Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -4942,6 +5039,73 @@ class _TelaCadastroMoradorState extends State<TelaCadastroMorador> {
   Uint8List? _fotoBytes;
 
   @override
+  void initState() {
+    super.initState();
+    _carregarRascunho();
+  }
+
+  Future<void> _carregarRascunho() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final str = prefs.getString('rascunho_morador');
+      if (str != null) {
+        final data = jsonDecode(str);
+        if (DateTime.now().millisecondsSinceEpoch - (data['timestamp'] ?? 0) < 3600000) {
+          setState(() {
+            _idCondominioCtrl.text = data['idCondominio'] ?? '';
+            _blocoCtrl.text = data['bloco'] ?? '';
+            _apCtrl.text = data['ap'] ?? '';
+            _nomeCtrl.text = data['nome'] ?? '';
+            _telefoneCtrl.text = data['telefone'] ?? '';
+            _emailCtrl.text = data['email'] ?? '';
+            _senhaCtrl.text = data['senha'] ?? '';
+            _cpfCtrl.text = data['cpf'] ?? '';
+            _nascimentoCtrl.text = data['nascimento'] ?? '';
+            _tipoOcupacao = data['tipo_ocupacao'] ?? 'inquilino';
+            _sindicoLocalizado = data['sindicoLocalizado'] ?? '';
+            _nomeCondominioLocalizado = data['nomeCondominioLocalizado'] ?? '';
+            _codigoVerificacaoCorreto = data['codigoVerificacaoCorreto'] ?? '';
+            _aceitouTermos = true;
+            _etapa = 1;
+          });
+          final file = File('${(await getApplicationDocumentsDirectory()).path}/rasc_foto_m.jpg');
+          if (await file.exists()) {
+            setState(() => _fotoBytes = file.readAsBytesSync());
+          }
+        } else {
+          _limparRascunho();
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _salvarRascunho() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('rascunho_morador', jsonEncode({
+        'idCondominio': _idCondominioCtrl.text, 'bloco': _blocoCtrl.text, 'ap': _apCtrl.text,
+        'nome': _nomeCtrl.text, 'telefone': _telefoneCtrl.text, 'email': _emailCtrl.text,
+        'senha': _senhaCtrl.text, 'cpf': _cpfCtrl.text, 'nascimento': _nascimentoCtrl.text,
+        'tipo_ocupacao': _tipoOcupacao, 'sindicoLocalizado': _sindicoLocalizado,
+        'nomeCondominioLocalizado': _nomeCondominioLocalizado, 'codigoVerificacaoCorreto': _codigoVerificacaoCorreto,
+        'timestamp': DateTime.now().millisecondsSinceEpoch
+      }));
+      if (_fotoBytes != null) {
+        final file = File('${(await getApplicationDocumentsDirectory()).path}/rasc_foto_m.jpg');
+        await file.writeAsBytes(_fotoBytes!);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _limparRascunho() async {
+    try {
+      (await SharedPreferences.getInstance()).remove('rascunho_morador');
+      final file = File('${(await getApplicationDocumentsDirectory()).path}/rasc_foto_m.jpg');
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+  }
+
+  @override
   void dispose() { _idCondominioCtrl.dispose(); _blocoCtrl.dispose(); _apCtrl.dispose(); _nomeCtrl.dispose(); _telefoneCtrl.dispose(); _emailCtrl.dispose(); _senhaCtrl.dispose(); _codigoDigitadoCtrl.dispose(); _cpfCtrl.dispose(); _nascimentoCtrl.dispose(); super.dispose(); }
 
   void _mostrarErro(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
@@ -4952,8 +5116,10 @@ class _TelaCadastroMoradorState extends State<TelaCadastroMorador> {
     if (!_aceitouTermos) { _mostrarErro("Você precisa aceitar os Termos de Uso."); return; }
     setState(() => _carregando = true);
     final resposta = await HelperEmail.enviarCodigo(emailDestino: _emailCtrl.text.trim().toLowerCase(), nome: _nomeCtrl.text.trim(), perfil: 'morador', idCondominio: _idCondominioCtrl.text.trim());
-    if (resposta['status'] == 'sucesso') setState(() { _sindicoLocalizado = resposta['sindico_vinculado']; _nomeCondominioLocalizado = resposta['nome_condominio']; _codigoVerificacaoCorreto = resposta['codigo_gerado']; _etapa = 1; _carregando = false; });
-    else { setState(() => _carregando = false); if (mounted) _mostrarErro(TratamentoDeErros.traduzir(resposta['erro'] ?? "Erro ao enviar e-mail.")); }
+    if (resposta['status'] == 'sucesso') {
+      setState(() { _sindicoLocalizado = resposta['sindico_vinculado']; _nomeCondominioLocalizado = resposta['nome_condominio']; _codigoVerificacaoCorreto = resposta['codigo_gerado']; _etapa = 1; _carregando = false; });
+      await _salvarRascunho();
+    } else { setState(() => _carregando = false); if (mounted) _mostrarErro(TratamentoDeErros.traduzir(resposta['erro'] ?? "Erro ao enviar e-mail.")); }
   }
 
   Future<void> _validarECriarConta() async {
@@ -4964,6 +5130,7 @@ class _TelaCadastroMoradorState extends State<TelaCadastroMorador> {
       if (!mounted) return;
       if (resultado['sucesso'] == true) {
         try { await FirebaseFunctions.instance.httpsCallable('completarCadastroMorador').call({'email': _emailCtrl.text.trim().toLowerCase(), 'sindico': _sindicoLocalizado, 'cpf': _tipoOcupacao == 'proprietario' ? _cpfCtrl.text.trim().replaceAll(RegExp(r'[^0-9]'), '') : '', 'data_nascimento': _nascimentoCtrl.text.trim(), 'tipo_ocupacao': _tipoOcupacao, 'foto_base64': base64Encode(_fotoBytes!)}); } catch (_) {}
+        await _limparRascunho();
         setState(() { _etapa = 2; _carregando = false; });
       } else { setState(() => _carregando = false); _mostrarErro(TratamentoDeErros.traduzir(resultado['erro'])); }
     } catch (e) { setState(() => _carregando = false); if (mounted) _mostrarErro(TratamentoDeErros.traduzir(e)); }
@@ -4990,11 +5157,11 @@ class _TelaCadastroMoradorState extends State<TelaCadastroMorador> {
     TextField(controller: _senhaCtrl, obscureText: _ocultarSenha, decoration: InputDecoration(labelText: "Crie uma Senha *", border: const OutlineInputBorder(), suffixIcon: IconButton(icon: Icon(_ocultarSenha ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _ocultarSenha = !_ocultarSenha)))), const SizedBox(height: 15),
     Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Checkbox(value: _aceitouTermos, activeColor: colorScheme.primary, onChanged: (v) => setState(() => _aceitouTermos = v!)), Expanded(child: GestureDetector(onTap: () => mostrarTermosDeUso(context), child: Padding(padding: const EdgeInsets.only(top: 12), child: Text.rich(TextSpan(text: "Declaro sob as penas da lei que as informações de ocupação (Proprietário/Inquilino) são verdadeiras. Li e aceito os ", style: TextStyle(fontSize: 11, color: colorScheme.onSurface), children: [TextSpan(text: "Termos de Uso e Política de Privacidade LGPD.", style: TextStyle(color: colorScheme.primary, fontWeight: FontWeight.bold, decoration: TextDecoration.underline))])))))]), const SizedBox(height: 20),
     const Text("Biometria Facial (Controle de Acesso)", style: TextStyle(fontWeight: FontWeight.bold)), const SizedBox(height: 5), Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.orange.withValues(alpha:0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.orange)), child: const Text("⚠️ ATENÇÃO: Esta foto será enviada para as catracas do condomínio e NÃO poderá ser alterada depois. Retire bonés, óculos escuros e tire a foto em local bem iluminado.", style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold))), const SizedBox(height: 10),
-    InkWell(onTap: () async { final escolha = await showDialog<int>(context: context, builder: (ctx) => AlertDialog(title: const FittedBox(fit: BoxFit.scaleDown, child: Text("Origem da Foto")), content: const Text("Como deseja enviar a sua foto?\n\nA opção 'Câmera' usará o sistema leve embutido para evitar o fechamento do aplicativo."), actions:[TextButton.icon(icon: const Icon(Icons.folder), label: const Text("Galeria"), onPressed: () => Navigator.pop(ctx, 1)), TextButton.icon(icon: const Icon(Icons.camera_alt), label: const Text("Câmera"), onPressed: () => Navigator.pop(ctx, 2))])); if (escolha == null) return; try { if (escolha == 2) { final bytesDaFoto = await showDialog<Uint8List>(context: context, barrierDismissible: false, builder: (ctx) => const DialogCapturaCamera(titulo: "Tirar Selfie (Biometria)")); if (bytesDaFoto != null) setState(() => _fotoBytes = bytesDaFoto); } else { final photo = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 600, imageQuality: 50); if (photo != null) setState(() async { _fotoBytes = await photo.readAsBytes(); }); } } catch (_) { if (mounted) _mostrarErro("Acesso negado ou falha na câmera."); } }, child: Container(height: 120, width: double.infinity, decoration: BoxDecoration(color: _fotoBytes != null ? Colors.green.withValues(alpha:0.1) : colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(10), border: Border.all(color: _fotoBytes != null ? Colors.green : colorScheme.outlineVariant), image: _fotoBytes != null ? DecorationImage(image: MemoryImage(_fotoBytes!), fit: BoxFit.cover) : null), child: _fotoBytes == null ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.face, size: 40, color: colorScheme.onSurfaceVariant), const SizedBox(height: 5), Text("Adicionar Foto do Rosto", style: TextStyle(color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold))]) : null)), const SizedBox(height: 20),
+    InkWell(onTap: () async { final escolha = await showDialog<int>(context: context, builder: (ctx) => AlertDialog(title: const FittedBox(fit: BoxFit.scaleDown, child: Text("Origem da Foto")), content: const Text("Como deseja enviar a sua foto?"), actions:[TextButton.icon(icon: const Icon(Icons.folder), label: const Text("Selecionar Imagem"), onPressed: () => Navigator.pop(ctx, 1)), TextButton.icon(icon: const Icon(Icons.camera_alt), label: const Text("Tirar Foto"), onPressed: () => Navigator.pop(ctx, 2))])); if (escolha == null) return; try { if (escolha == 2) { Uint8List? bytesDaFoto; if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) { bytesDaFoto = await showDialog<Uint8List>(context: context, barrierDismissible: false, builder: (ctx) => const DialogCapturaCamera(titulo: "Tirar Selfie", forcarCameraFrontal: true)); } else { final photo = await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 600, imageQuality: 50, preferredCameraDevice: CameraDevice.front); if (photo != null) bytesDaFoto = await photo.readAsBytes(); } if (bytesDaFoto != null) setState(() => _fotoBytes = bytesDaFoto); } else { final photo = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 600, imageQuality: 50); if (photo != null) { final bytesFile = await photo.readAsBytes(); setState(() => _fotoBytes = bytesFile); } } } catch (_) { if (mounted) _mostrarErro("Acesso negado ou falha na câmera."); } }, child: Container(height: 120, width: double.infinity, decoration: BoxDecoration(color: _fotoBytes != null ? Colors.green.withValues(alpha:0.1) : colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(10), border: Border.all(color: _fotoBytes != null ? Colors.green : colorScheme.outlineVariant), image: _fotoBytes != null ? DecorationImage(image: MemoryImage(_fotoBytes!), fit: BoxFit.cover) : null), child: _fotoBytes == null ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.face, size: 40, color: colorScheme.onSurfaceVariant), const SizedBox(height: 5), Text("Adicionar Foto do Rosto", style: TextStyle(color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold))]) : null)), const SizedBox(height: 20),
     _carregando ? const Center(child: CircularProgressIndicator()) : LogicNeonButton(fullWidth: true, corBase: (_aceitouTermos && _fotoBytes != null) ? colorScheme.primary : Colors.grey.shade700, corBrilho: (_aceitouTermos && _fotoBytes != null) ? colorScheme.primary : Colors.grey.shade500, onPressed: (_aceitouTermos && _fotoBytes != null) ? _enviarCodigo : () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Você precisa aceitar os Termos e tirar a Foto obrigatória!"), backgroundColor: Colors.orange)), child: Text("CONTINUAR", style: TextStyle(color: (_aceitouTermos && _fotoBytes != null) ? Colors.white : Colors.white54, fontWeight: FontWeight.bold)))
   ]);
 
-  Widget _buildValidacaoEmail(ColorScheme colorScheme) => Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.mark_email_read, size: 60, color: colorScheme.secondary), const SizedBox(height: 20), const Text("Verifique seu E-mail", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)), const SizedBox(height: 10), Text("Enviamos um código de 6 dígitos para:\n${_emailCtrl.text}", textAlign: TextAlign.center, style: TextStyle(color: colorScheme.onSurfaceVariant)), const SizedBox(height: 30), TextField(controller: _codigoDigitadoCtrl, keyboardType: TextInputType.number, maxLength: 6, textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 10), decoration: const InputDecoration(hintText: "000000", border: OutlineInputBorder(), counterText: "")), const SizedBox(height: 30), _carregando ? const Center(child: CircularProgressIndicator()) : LogicNeonButton(fullWidth: true, corBase: Colors.green, corBrilho: Colors.greenAccent, onPressed: _validarECriarConta, child: const Text("VALIDAR E CONCLUIR", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))), const SizedBox(height: 15), TextButton(onPressed: () => setState(() { _etapa = 0; _codigoDigitadoCtrl.clear(); }), child: const Text("Voltar e corrigir dados"))]);
+  Widget _buildValidacaoEmail(ColorScheme colorScheme) => Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.mark_email_read, size: 60, color: colorScheme.secondary), const SizedBox(height: 20), const Text("Verifique seu E-mail", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)), const SizedBox(height: 10), Text("Enviamos um código de 6 dígitos para:\n${_emailCtrl.text}", textAlign: TextAlign.center, style: TextStyle(color: colorScheme.onSurfaceVariant)), const SizedBox(height: 30), TextField(controller: _codigoDigitadoCtrl, keyboardType: TextInputType.number, maxLength: 6, textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 10), decoration: const InputDecoration(hintText: "000000", border: OutlineInputBorder(), counterText: "")), const SizedBox(height: 30), _carregando ? const Center(child: CircularProgressIndicator()) : LogicNeonButton(fullWidth: true, corBase: Colors.green, corBrilho: Colors.greenAccent, onPressed: _validarECriarConta, child: const Text("VALIDAR E CONCLUIR", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))), const SizedBox(height: 15), TextButton(onPressed: () { _limparRascunho(); setState(() { _etapa = 0; _codigoDigitadoCtrl.clear(); }); }, child: const Text("Voltar e corrigir dados"))]);
   Widget _buildSucesso(ColorScheme colorScheme) => Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.how_to_reg, size: 80, color: Colors.orange), const SizedBox(height: 20), const Text("Cadastro Recebido!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), const SizedBox(height: 10), Text("Você está vinculado ao condomínio:\n$_nomeCondominioLocalizado", textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)), const SizedBox(height: 20), const Text("Por questões de segurança, sua conta encontra-se em status PENDENTE. Você já pode fazer o login no aplicativo, mas as funcionalidades só serão liberadas após a administração confirmar seus dados.", textAlign: TextAlign.center), const SizedBox(height: 30), LogicNeonButton(fullWidth: true, corBase: colorScheme.primary, corBrilho: colorScheme.primary, onPressed: () => Navigator.pop(context), child: const Text("IR PARA O LOGIN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))]);
 }
 
@@ -5046,7 +5213,7 @@ class _TelaNotificacoesState extends State<TelaNotificacoes> with WidgetsBinding
           if (docs.isEmpty) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.campaign, size: 80, color: colorScheme.onSurfaceVariant.withValues(alpha:0.3)), const SizedBox(height: 20), Text("Nenhum aviso foi enviado ainda.", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 16))]));
           return ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), itemCount: docs.length + 1, itemBuilder: (ctx, i) {
             if (i == docs.length) return Padding(padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20), child: OutlinedButton.icon(style: OutlinedButton.styleFrom(padding: const EdgeInsets.all(15)), icon: const Icon(Icons.history), label: Text("CARREGAR MAIS ANTIGOS (Mostrando os últimos $_limiteNotificacoes)"), onPressed: () => setState(() { _limiteNotificacoes += 20; _initStreams(); })));
-            final doc = docs[i], data = doc.data() as Map<String, dynamic>, destino = data['para'] ?? 'todos', paraTodos = destino == 'todos', paraBloco = destino.startsWith('bloco_'), labelDestino = paraTodos ? "🚨 GERAL (Todos)" : (paraBloco ? "🏢 BLOCO ${destino.split('_')[1]}" : "🔒 PRIVADO ($destino)"), dataFormatada = data['data'] != null ? DateFormat('dd/MM/yyyy HH:mm').format((data['data'] as Timestamp).toDate()) : "Agora";
+            final doc = docs[i], data = doc.data() as Map<String, dynamic>, destino = data['para'] ?? 'todos', paraTodos = destino == 'todos', paraBloco = destino.startsWith('bloco_'), labelDestino = paraTodos ? "🚨 GERAL (Todos)" : (paraBloco ? "🏢 BLOCO ${destino.split('_')[1]}" : "🔒 PRIVADO (${data['nome_destino'] ?? destino})"), dataFormatada = data['data'] != null ? DateFormat('dd/MM/yyyy HH:mm').format((data['data'] as Timestamp).toDate()) : "Agora";
             return Card(margin: const EdgeInsets.only(bottom: 15), elevation: 2, shape: RoundedRectangleBorder(side: BorderSide(color: paraTodos ? colorScheme.primary.withValues(alpha:0.3) : colorScheme.secondary.withValues(alpha:0.3)), borderRadius: BorderRadius.circular(10)), child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: Align(alignment: Alignment.centerLeft, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: paraTodos ? colorScheme.primaryContainer : colorScheme.secondaryContainer, borderRadius: BorderRadius.circular(5)), child: Text(labelDestino, style: TextStyle(color: paraTodos ? colorScheme.onPrimaryContainer : colorScheme.onSecondaryContainer, fontSize: 10, fontWeight: FontWeight.bold))))), const SizedBox(width: 10), Text(dataFormatada, style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12))]), const SizedBox(height: 15), Text(data['titulo'] ?? 'Sem Título', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), const SizedBox(height: 8), Text(data['mensagem'] ?? '', style: TextStyle(color: colorScheme.onSurface.withValues(alpha:0.9), fontSize: 15)), const Divider(height: 30),
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(Icons.person, size: 14, color: colorScheme.onSurfaceVariant), const SizedBox(width: 5), Expanded(child: Text("Enviado por: ${data['remetente'] ?? 'Sistema'}", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12)))])), IconButton(icon: Icon(Icons.delete, color: colorScheme.error, size: 20), padding: EdgeInsets.zero, constraints: const BoxConstraints(), tooltip: "Apagar Aviso", onPressed: () { showDialog(context: context, builder: (c) => AlertDialog(title: Text("Apagar Aviso?", style: TextStyle(color: colorScheme.error)), content: const Text("Este aviso sumirá do mural de todos os moradores. Confirma?"), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text("CANCELAR")), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: colorScheme.error, foregroundColor: colorScheme.onError), onPressed: () async { await doc.reference.delete(); if (mounted) Navigator.pop(c); }, child: const Text("APAGAR"))])); })])
@@ -5107,8 +5274,9 @@ class _ModalNovoAvisoState extends State<_ModalNovoAviso> {
       String destinoFinal = "todos"; final emailsAlvo = <String>[];
       if (_tipoDestino == "morador") destinoFinal = _emailMoradorSelecionado!; else if (_tipoDestino == "bloco") { destinoFinal = "bloco_$_blocoSelecionado"; emailsAlvo.addAll((await FirebaseFirestore.instance.collection('usuarios').where('sindico_vinculado', isEqualTo: widget.emailSindico).where('perfil', isEqualTo: 'morador').where('bloco', isEqualTo: _blocoSelecionado).get()).docs.map((d) => d.data()['email'] ?? d.id).cast<String>()); }
       final batch = FirebaseFirestore.instance.batch();
-      batch.set(FirebaseFirestore.instance.collection('notificacoes').doc(), {'sindico_vinculado': widget.emailSindico, 'para': destinoFinal, 'titulo': _tituloCtrl.text.trim(), 'mensagem': _mensagemCtrl.text.trim(), 'data': FieldValue.serverTimestamp(), 'remetente': operadorLogado, 'tipo_acao': 'acao_avisos'});
-      if (_tipoDestino == "bloco" && emailsAlvo.isNotEmpty) for (final email in emailsAlvo) batch.set(FirebaseFirestore.instance.collection('notificacoes').doc(), {'sindico_vinculado': widget.emailSindico, 'para': email, 'titulo': _tituloCtrl.text.trim(), 'mensagem': _mensagemCtrl.text.trim(), 'data': FieldValue.serverTimestamp(), 'remetente': operadorLogado, 'tipo_acao': 'acao_avisos', 'ocultar_do_historico': true});
+      String nomeDest = _tipoDestino == "morador" ? "Bloco $_blocoSelecionado AP $_apSelecionado - ${_listaMoradoresDoAp.firstWhere((m) => m['email'] == _emailMoradorSelecionado)['nome'] ?? ''}" : destinoFinal;
+      batch.set(FirebaseFirestore.instance.collection('notificacoes').doc(), {'sindico_vinculado': widget.emailSindico, 'para': destinoFinal, 'nome_destino': nomeDest, 'titulo': _tituloCtrl.text.trim(), 'mensagem': _mensagemCtrl.text.trim(), 'data': FieldValue.serverTimestamp(), 'remetente': operadorLogado, 'tipo_acao': 'acao_avisos'});
+      if (_tipoDestino == "bloco" && emailsAlvo.isNotEmpty) for (final email in emailsAlvo) batch.set(FirebaseFirestore.instance.collection('notificacoes').doc(), {'sindico_vinculado': widget.emailSindico, 'para': email, 'nome_destino': nomeDest, 'titulo': _tituloCtrl.text.trim(), 'mensagem': _mensagemCtrl.text.trim(), 'data': FieldValue.serverTimestamp(), 'remetente': operadorLogado, 'tipo_acao': 'acao_avisos', 'ocultar_do_historico': true});
       await batch.commit(); if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Comunicado disparado com sucesso!"), backgroundColor: Colors.green)); }
     } catch (e) { setState(() => _enviando = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(TratamentoDeErros.traduzir(e)), backgroundColor: Colors.red)); }
   }
@@ -5352,7 +5520,7 @@ class _TelaReservasMoradorState extends State<TelaReservasMorador> with WidgetsB
         if (filaSnap.docs.isNotEmpty) {
           String dataFormatadaBR = dadosReserva['data_reserva']; try { dataFormatadaBR = DateFormat('dd/MM/yyyy').format(DateTime.parse(dataFormatadaBR)); } catch (_) {}
           for (var f in filaSnap.docs) {
-            await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.userData['sindico_vinculado'], 'para': (f.data()['email'] ?? '').toString().toLowerCase().trim(), 'titulo': '⚠️ ÁREA COMUM LIBERADA!', 'mensagem': 'A reserva de ${dadosReserva['nome_area']} para o dia $dataFormatadaBR (${dadosReserva['turno']}) foi cancelada. Acesse o app rápido para alugar (O primeiro a clicar, ganha)!', 'data': FieldValue.serverTimestamp(), 'remetente': 'Sistema de Reservas', 'tipo_acao': 'acao_avisos'});
+            await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.userData['sindico_vinculado'], 'para': (f.data()['email'] ?? '').toString().toLowerCase().trim(), 'nome_destino': 'Bloco ${f.data()['bloco']} AP ${f.data()['ap']} - ${f.data()['morador']}', 'titulo': '⚠️ ÁREA COMUM LIBERADA!', 'mensagem': 'A reserva de ${dadosReserva['nome_area']} para o dia $dataFormatadaBR (${dadosReserva['turno']}) foi cancelada. Acesse o app rápido para alugar (O primeiro a clicar, ganha)!', 'data': FieldValue.serverTimestamp(), 'remetente': 'Sistema de Reservas', 'tipo_acao': 'acao_avisos'});
             f.reference.delete();
           }
         }
@@ -5418,7 +5586,7 @@ class _TelaReservasMoradorState extends State<TelaReservasMorador> with WidgetsB
           if (valorTaxa > 0) batch.set(FirebaseFirestore.instance.collection('cobrancas_extras').doc(), {'sindico_vinculado': widget.userData['sindico_vinculado'], 'email_morador': widget.userData['email'], 'nome_morador': widget.userData['nome'], 'bloco': widget.userData['bloco'], 'ap': widget.userData['ap'], 'tipo': 'reserva', 'titulo': 'Aluguel: ${areaData['nome']}', 'descricao': 'Reserva para o dia $dataFormatada no turno $turno.', 'valor': valorTaxa, 'status': 'pendente_faturamento', 'data_criacao': FieldValue.serverTimestamp()});
           await batch.commit();
           String dataBR = dataFormatada; try { dataBR = DateFormat('dd/MM/yyyy').format(DateTime.parse(dataFormatada)); } catch (_) {}
-          await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.userData['sindico_vinculado'], 'para': widget.userData['email'].toString().toLowerCase().trim(), 'titulo': '✅ RESERVA CONFIRMADA!', 'mensagem': 'Sua reserva para ${areaData['nome']} no dia $dataBR ($turno) foi efetivada com sucesso.', 'data': FieldValue.serverTimestamp(), 'remetente': 'Sistema de Reservas', 'tipo_acao': 'acao_avisos'});
+          await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.userData['sindico_vinculado'], 'para': widget.userData['email'].toString().toLowerCase().trim(), 'nome_destino': 'Bloco ${widget.userData['bloco']} AP ${widget.userData['ap']} - ${widget.userData['nome']}', 'titulo': '✅ RESERVA CONFIRMADA!', 'mensagem': 'Sua reserva para ${areaData['nome']} no dia $dataBR ($turno) foi efetivada com sucesso.', 'data': FieldValue.serverTimestamp(), 'remetente': 'Sistema de Reservas', 'tipo_acao': 'acao_avisos'});
           if (mounted) { Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Reserva Confirmada com Sucesso!"), backgroundColor: Colors.green)); }
         } else { Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text("Ops! Alguém alugou antes de você terminar de ler."), backgroundColor: colorScheme.error)); }
       }, child: const FittedBox(fit: BoxFit.scaleDown, child: Text("CONFIRMAR RESERVA", style: TextStyle(color: Colors.white))))]);
@@ -5504,6 +5672,8 @@ class _PlayerNuvemState extends State<PlayerNuvem> with TickerProviderStateMixin
   String _status = 'iniciando'; bool _isDisposed = false;
   Timer? _watchdogTimer, _timeoutSetupTimer; Duration _ultimaPosicao = Duration.zero;
   late AnimationController _piscaController;
+  int _tentativasReconexao = 0;
+  static const int MAX_TENTATIVAS = 3;
 
   @override
   void initState() {
@@ -5531,7 +5701,7 @@ class _PlayerNuvemState extends State<PlayerNuvem> with TickerProviderStateMixin
       if (_isDisposed) return;
 
       if (response.data['sucesso'] == true) {
-        if (mounted) setState(() => _status = 'autenticando');
+        if (mounted) setState(() { _status = 'autenticando'; _tentativasReconexao = 0; });
         final ingressoJwt = response.data['jwt'] ?? '', triggerUrl = '$urlBaseCloudflare/${widget.cameraId}/?token=$ingressoJwt', hlsUrl = '$urlBaseCloudflare/${widget.cameraId}/index.m3u8?token=$ingressoJwt';
         http.get(Uri.parse(triggerUrl)).catchError((_) => http.Response('', 500));
         
@@ -5574,6 +5744,11 @@ class _PlayerNuvemState extends State<PlayerNuvem> with TickerProviderStateMixin
   void _agendarReconexaoNuvem(String motivo) {
     if (_isDisposed) return; _timeoutSetupTimer?.cancel(); _watchdogTimer?.cancel();
     _player?.dispose(); _player = null; _videoController = null;
+    _tentativasReconexao++;
+    if (_tentativasReconexao > MAX_TENTATIVAS) {
+      if (mounted) setState(() => _status = 'falha_definitiva');
+      return;
+    }
     Future.delayed(const Duration(seconds: 5), () { if (mounted && !_isDisposed) _iniciarPedidoComJWT(); });
   }
 
@@ -5587,6 +5762,7 @@ class _PlayerNuvemState extends State<PlayerNuvem> with TickerProviderStateMixin
       child: AspectRatio(aspectRatio: 16 / 9, child: Stack(fit: StackFit.expand, children:[
         if (_status == 'ativo' && _videoController != null) Video(controller: _videoController!, controls: NoVideoControls),
         if (['iniciando', 'autenticando', 'acordando_camera', 'reconectando'].contains(_status)) Column(mainAxisAlignment: MainAxisAlignment.center, children:[const CircularProgressIndicator(color: Colors.blue), const SizedBox(height: 15), FadeTransition(opacity: _piscaController, child: FittedBox(fit: BoxFit.scaleDown, child: Text(['iniciando', 'reconectando'].contains(_status) ? "Conectando ao servidor..." : (_status == 'autenticando' ? "Criptografando..." : "Conectando..."), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1)))), const SizedBox(height: 8), const FittedBox(fit: BoxFit.scaleDown, child: Text("Isso leva no máximo 8 segundos.", style: TextStyle(color: Colors.white54, fontSize: 11)))]),
+        if (_status == 'falha_definitiva') Column(mainAxisAlignment: MainAxisAlignment.center, children:[const Icon(Icons.videocam_off, color: Colors.red, size: 40), const SizedBox(height: 10), const FittedBox(fit: BoxFit.scaleDown, child: Text("Câmera Offline", style: TextStyle(color: Colors.white, fontSize: 12))), const SizedBox(height: 10), TextButton.icon(icon: const Icon(Icons.refresh, color: Colors.blue, size: 16), label: const Text("Tentar Novamente", style: TextStyle(color: Colors.blue)), onPressed: () { setState(() { _tentativasReconexao = 0; _status = 'iniciando'; }); _iniciarPedidoComJWT(); })]),
         if (['offline', 'erro'].contains(_status)) Column(mainAxisAlignment: MainAxisAlignment.center, children:[const Icon(Icons.cloud_off, color: Colors.orange, size: 40), const SizedBox(height: 10), FittedBox(fit: BoxFit.scaleDown, child: Text(_status == 'offline' ? "Portaria Offline. Tentando novamente..." : "Falha na imagem. Reconectando...", style: const TextStyle(color: Colors.white, fontSize: 12)))]),
         if (_status == 'negado') const Column(mainAxisAlignment: MainAxisAlignment.center, children:[Icon(Icons.security, color: Colors.orange, size: 40), SizedBox(height: 10), FittedBox(fit: BoxFit.scaleDown, child: Text("Acesso Negado (Sem permissão).", style: TextStyle(color: Colors.white, fontSize: 12)))]),
         if (widget.onEdit != null || widget.onDelete != null) Positioned(top: 0, right: 0, child: Container(decoration: BoxDecoration(color: Colors.black.withValues(alpha:0.6), borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(10))), child: Row(mainAxisSize: MainAxisSize.min, children:[if (widget.onEdit != null) IconButton(icon: const Icon(Icons.settings, color: Colors.blue, size: 18), tooltip: "Configurar Câmera", onPressed: widget.onEdit, padding: const EdgeInsets.all(8), constraints: const BoxConstraints()), if (widget.onDelete != null) IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 18), tooltip: "Excluir Câmera", onPressed: widget.onDelete, padding: const EdgeInsets.all(8), constraints: const BoxConstraints())]))),
@@ -6335,7 +6511,7 @@ class _TelaRondaPortariaState extends State<TelaRondaPortaria> {
         } else if (agora.isAfter(fimAdvertencia) && !_rondasPerdidasProcessadas.contains(idUnicoRondaDiaria)) {
           _rondasPerdidasProcessadas.add(idUnicoRondaDiaria);
           await FirebaseFirestore.instance.collection('registros_ronda').add({'sindico_vinculado': widget.emailSindico, 'horario_referencia': horario, 'id_unico_ronda_diaria': idUnicoRondaDiaria, 'data_registro': FieldValue.serverTimestamp(), 'operador': operadorLogado, 'status': 'perdida'});
-          await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': widget.emailSindico, 'titulo': '🚨 RONDA NÃO REALIZADA!', 'mensagem': 'O porteiro $operadorLogado não registrou a ronda programada para as $horario.', 'data': FieldValue.serverTimestamp(), 'remetente': 'Sistema de Ronda'});
+          await FirebaseFirestore.instance.collection('notificacoes').add({'sindico_vinculado': widget.emailSindico, 'para': widget.emailSindico, 'nome_destino': 'Síndico', 'titulo': '🚨 RONDA NÃO REALIZADA!', 'mensagem': 'O porteiro $operadorLogado não registrou a ronda programada para as $horario.', 'data': FieldValue.serverTimestamp(), 'remetente': 'Sistema de Ronda'});
           await registrarAuditoria(widget.emailSindico, "Ronda Perdida", "Segurança", "Porteiro perdeu a ronda das $horario.");
         }
       }
@@ -6344,6 +6520,7 @@ class _TelaRondaPortariaState extends State<TelaRondaPortaria> {
       else if (!tocandoAlarmeLocal && _audioPlayer!.state.playing) _audioPlayer!.stop();
     });
   }
+
 
   void _registrarRonda() async {
     if (_rondaAtiva == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Não há nenhuma ronda programada para este exato momento."))); return; }
@@ -6522,7 +6699,7 @@ class _TelaAberturaPorAproximacaoState extends State<TelaAberturaPorAproximacao>
               for (final svc in await r.device.discoverServices()) if (svc.uuid.toString() == "4fafc201-1fb5-459e-8fcc-c5c9c331914b") {
                 for (final c in svc.characteristics) if (c.uuid.toString() == "beb5483e-36e1-4688-b7f5-ea07361b26a8") {
                   try { await c.setNotifyValue(true); } catch (_) {}
-                  final cmd = "SEC|${Uri.encodeComponent(CryptoHelper.criptografar("${widget.userData['email'] ?? ''};${DateTime.now().millisecondsSinceEpoch}"))}|$rele";
+                  final cmd = "SEC|${Uri.encodeComponent(CryptoHelper.criptografar("${widget.userData['email'] ?? ''};${DateTime.now().millisecondsSinceEpoch};ONL"))}|$rele";
                   bool res = false; String sFinal = "TIMEOUT";
                   final nSub = c.onValueReceived.listen((val) async {
                     final rep = utf8.decode(val);
@@ -6546,26 +6723,29 @@ class _TelaAberturaPorAproximacaoState extends State<TelaAberturaPorAproximacao>
     } catch (_) { return "ERR"; }
   }
 
-  void _enviarComandoAbertura(Map<String, dynamic> dataPortao, String idPortao) async {
+  void _enviarComandoAbertura(Map<String, dynamic> dataPortao, String idPortao, {bool usarBluetooth = false}) async {
     final nomePortao = dataPortao['nome'], rele = dataPortao['codigo'], idDispositivo = dataPortao['id_box'], tempoAbertura = dataPortao['tempo_abertura'] ?? 15;
-    mostrarBrilhoNeon(context); setState(() => _processandoLocal = true); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Aguarde..."), duration: Duration(seconds: 1)));
+    mostrarBrilhoNeon(context); setState(() => _processandoLocal = true); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(usarBluetooth ? "Conectando via Bluetooth..." : "Aguarde..."), duration: const Duration(seconds: 1)));
     
-    final statusBle = await _abrirViaBluetooth(idDispositivo, rele);
-    if (statusBle == "OK") { registrarAuditoria(widget.userData['sindico_vinculado'], "Abertura Bluetooth (Offline)", "Acesso Mobile", "Portão $nomePortao acionado localmente por ${widget.userData['nome']}.").then((_) {}, onError: (_) {}); setState(() => _processandoLocal = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Portão abrindo"), backgroundColor: Colors.green)); await Future.delayed(const Duration(milliseconds: 2000)); SystemNavigator.pop(); return; }
-    else if (statusBle == "MOV") { setState(() => _processandoLocal = false); await Future.delayed(const Duration(milliseconds: 2000)); SystemNavigator.pop(); return; }
-    else if (statusBle == "BLKD") { setState(() => _processandoLocal = false); return; }
+    if (usarBluetooth) {
+      final statusBle = await _abrirViaBluetooth(idDispositivo, rele);
+      if (statusBle == "OK") { registrarAuditoria(widget.userData['sindico_vinculado'], "Abertura Bluetooth (Offline)", "Acesso Mobile", "Portão $nomePortao acionado localmente por ${widget.userData['nome']}.").catchError((_) => null); setState(() => _processandoLocal = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Portão abrindo"), backgroundColor: Colors.green)); await Future.delayed(const Duration(milliseconds: 2000)); SystemNavigator.pop(); return; }
+      else if (statusBle == "MOV") { setState(() => _processandoLocal = false); await Future.delayed(const Duration(milliseconds: 2000)); SystemNavigator.pop(); return; }
+      else if (statusBle == "BLKD") { setState(() => _processandoLocal = false); return; }
+      else { setState(() => _processandoLocal = false); return; }
+    }
 
     bool temInternet = true; 
-    if (!kIsWeb) { // Pula o teste de DNS se for Web
-      try { if ((await InternetAddress.lookup('google.com')).isEmpty) temInternet = false; } catch (_) { temInternet = false; }
+    if (!kIsWeb) { 
+      try { if ((await InternetAddress.lookup('google.com').timeout(const Duration(seconds: 2))).isEmpty) temInternet = false; } catch (_) { temInternet = false; }
     }
-    if (!temInternet) { setState(() => _processandoLocal = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.orange, content: Text("Portão fora de alcance e sem internet.", style: TextStyle(color: Colors.white)), duration: Duration(seconds: 4))); return; }
+    if (!temInternet) { setState(() => _processandoLocal = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.orange, content: Text("Sem internet. Use o botão de Bluetooth ao lado.", style: TextStyle(color: Colors.white)), duration: Duration(seconds: 4))); return; }
 
     try {
       final docAtual = await FirebaseFirestore.instance.collection('portoes').doc(idPortao).get(const GetOptions(source: Source.server)).timeout(const Duration(milliseconds: 800));
       if (docAtual.exists && docAtual.data()!['ultima_abertura'] != null && DateTime.now().difference((docAtual.data()!['ultima_abertura'] as Timestamp).toDate()).inSeconds.abs() < tempoAbertura) { setState(() => _processandoLocal = false); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(backgroundColor: Colors.orange, content: Text("Aguarde! Portão já está em movimento.", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))); await Future.delayed(const Duration(milliseconds: 2000)); SystemNavigator.pop(); return; }
     } catch(_) {}
-    FirebaseFirestore.instance.collection('portoes').doc(idPortao).update({'ultima_abertura': FieldValue.serverTimestamp()}).then((_) {}, onError: (_) {});
+    FirebaseFirestore.instance.collection('portoes').doc(idPortao).update({'ultima_abertura': FieldValue.serverTimestamp()}).catchError((_) => null);
     GerenciadorDeTunel.registrarMovimentoRele(rele);
 
     try {
@@ -6610,7 +6790,7 @@ class _TelaAberturaPorAproximacaoState extends State<TelaAberturaPorAproximacao>
             return Center(child: Padding(padding: const EdgeInsets.all(30), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.lock, size: 100, color: colorScheme.error), const SizedBox(height: 20), Text("Acesso Restrito", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: colorScheme.error)), const SizedBox(height: 10), Text("Você não possui idade mínima ($idadeExigida anos) para abrir portões.", textAlign: TextAlign.center, style: const TextStyle(fontSize: 16))])));
           }
 
-          return Column(children: [const SizedBox(height: 30), FadeTransition(opacity: _pulseController, child: Icon(Icons.sensor_door, color: colorScheme.primary, size: 80)), const SizedBox(height: 15), Text("Sinal Detectado!", style: TextStyle(color: colorScheme.primary, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 1)), const SizedBox(height: 5), Text("Você está no raio de alcance do portão.", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 14)), const SizedBox(height: 30), if (_processandoLocal) const Padding(padding: EdgeInsets.all(20), child: Column(children: [CircularProgressIndicator(), SizedBox(height: 10), Text("Tentando conexão direta...")])), Expanded(child: FutureBuilder<QuerySnapshot>(future: FirebaseFirestore.instance.collection('portoes').where('sindico_vinculado', isEqualTo: widget.userData['sindico_vinculado']).where('permite_morador', isEqualTo: true).get(const GetOptions(source: Source.serverAndCache)), builder: (context, snap) { if (!snap.hasData) return const Center(child: CircularProgressIndicator()); if (snap.data!.docs.isEmpty) return Center(child: Text("Você não possui portões liberados.", style: TextStyle(color: colorScheme.onSurface))); return ListView.builder(itemCount: snap.data!.docs.length, itemBuilder: (ctx, i) { final data = snap.data!.docs[i].data() as Map<String, dynamic>; return Padding(padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15), child: SliderAbrirPortao(nomePortao: data['nome'].toString().toUpperCase(), onSlid: () => _enviarComandoAbertura(data, snap.data!.docs[i].id))); }); }))]);
+          return Column(children: [const SizedBox(height: 30), FadeTransition(opacity: _pulseController, child: Icon(Icons.sensor_door, color: colorScheme.primary, size: 80)), const SizedBox(height: 15), Text("Sinal Detectado!", style: TextStyle(color: colorScheme.primary, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 1)), const SizedBox(height: 5), Text("Você está no raio de alcance do portão.", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 14)), const SizedBox(height: 30), if (_processandoLocal) const Padding(padding: EdgeInsets.all(20), child: Column(children: [CircularProgressIndicator(), SizedBox(height: 10), Text("Tentando conexão direta...")])), Expanded(child: FutureBuilder<QuerySnapshot>(future: FirebaseFirestore.instance.collection('portoes').where('sindico_vinculado', isEqualTo: widget.userData['sindico_vinculado']).where('permite_morador', isEqualTo: true).get(const GetOptions(source: Source.serverAndCache)), builder: (context, snap) { if (!snap.hasData) return const Center(child: CircularProgressIndicator()); if (snap.data!.docs.isEmpty) return Center(child: Text("Você não possui portões liberados.", style: TextStyle(color: colorScheme.onSurface))); return ListView.builder(itemCount: snap.data!.docs.length, itemBuilder: (ctx, i) { final data = snap.data!.docs[i].data() as Map<String, dynamic>; return Padding(padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15), child: SliderAbrirPortao(nomePortao: data['nome'].toString().toUpperCase(), onSlid: () => _enviarComandoAbertura(data, snap.data!.docs[i].id), onBluetoothPressed: () => _enviarComandoAbertura(data, snap.data!.docs[i].id, usarBluetooth: true))); }); }))]);
         }
       )
     );
@@ -6618,8 +6798,8 @@ class _TelaAberturaPorAproximacaoState extends State<TelaAberturaPorAproximacao>
 }
 
 class SliderAbrirPortao extends StatefulWidget {
-  final VoidCallback onSlid; final String nomePortao;
-  const SliderAbrirPortao({super.key, required this.onSlid, required this.nomePortao});
+  final VoidCallback onSlid; final String nomePortao; final VoidCallback? onBluetoothPressed;
+  const SliderAbrirPortao({super.key, required this.onSlid, required this.nomePortao, this.onBluetoothPressed});
   @override
   State<SliderAbrirPortao> createState() => _SliderAbrirPortaoState();
 }
@@ -6631,9 +6811,23 @@ class _SliderAbrirPortaoState extends State<SliderAbrirPortao> {
     final colorScheme = Theme.of(context).colorScheme;
     return LayoutBuilder(builder: (context, constraints) {
       double h = constraints.maxHeight > 0 && constraints.maxHeight < 75 ? constraints.maxHeight : 75.0;
-      double maxDrag = constraints.maxWidth - (h + 4); if (maxDrag < 0) maxDrag = 0;
+      double availableWidth = widget.onBluetoothPressed != null ? constraints.maxWidth - (h + 20) : constraints.maxWidth;
+      double maxDrag = availableWidth - (h + 4); if (maxDrag < 0) maxDrag = 0;
       final progresso = maxDrag > 0 ? (_dragPosition / maxDrag).clamp(0.0, 1.0) : 0.0, corBotaoAtual = Color.lerp(colorScheme.primary, Colors.greenAccent, progresso) ?? colorScheme.primary, corBordaAtual = Color.lerp(colorScheme.primary.withValues(alpha:0.5), Colors.greenAccent.withValues(alpha:0.8), progresso) ?? colorScheme.primary.withValues(alpha:0.5), corSombra = Color.lerp(colorScheme.primary.withValues(alpha:0.5), Colors.greenAccent.withValues(alpha:1.0), progresso) ?? colorScheme.primary.withValues(alpha:0.5), blurSombra = 10 + (25 * progresso);
-      return Container(height: h, width: constraints.maxWidth, decoration: BoxDecoration(color: colorScheme.surfaceContainerHighest.withValues(alpha:0.5), borderRadius: BorderRadius.circular(h/2), border: Border.all(color: corBordaAtual, width: 2), boxShadow: [BoxShadow(color: Colors.greenAccent.withValues(alpha:0.2 * progresso), blurRadius: 15)]), child: Stack(children: [Center(child: Text(progresso > 0.8 ? "ABRINDO..." : "DESLIZE PARA ABRIR  >>>", style: TextStyle(color: Color.lerp(colorScheme.onSurface, Colors.white, progresso), fontWeight: FontWeight.bold, fontSize: h < 50 ? 10 : 12, letterSpacing: 1))), Positioned(left: _dragPosition, child: GestureDetector(onHorizontalDragUpdate: (details) => setState(() { _dragPosition += details.delta.dx; if (_dragPosition < 0) _dragPosition = 0; if (_dragPosition > maxDrag) _dragPosition = maxDrag; }), onHorizontalDragEnd: (_) { if (_dragPosition > maxDrag * 0.8) { widget.onSlid(); setState(() => _dragPosition = 0.0); } else setState(() => _dragPosition = 0.0); }, child: Container(height: h, width: h, decoration: BoxDecoration(color: corBotaoAtual, shape: BoxShape.circle, boxShadow: [BoxShadow(color: corSombra, blurRadius: blurSombra, spreadRadius: progresso * 5)]), child: Icon(Icons.lock_open, color: progresso > 0.6 ? Colors.black87 : colorScheme.onPrimary, size: h * 0.4))))]));
+      
+      Widget slider = Container(height: h, width: availableWidth, decoration: BoxDecoration(color: colorScheme.surfaceContainerHighest.withValues(alpha:0.5), borderRadius: BorderRadius.circular(h/2), border: Border.all(color: corBordaAtual, width: 2), boxShadow: [BoxShadow(color: Colors.greenAccent.withValues(alpha:0.2 * progresso), blurRadius: 15)]), child: Stack(children: [Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Text(progresso > 0.8 ? "ENVIANDO SINAL..." : "ABRIR VIA INTERNET (4G) >>>", style: TextStyle(color: Color.lerp(colorScheme.onSurface, Colors.white, progresso), fontWeight: FontWeight.bold, fontSize: h < 50 ? 10 : 12, letterSpacing: 1)), if (progresso <= 0.2) Padding(padding: const EdgeInsets.only(top: 2), child: Text("Use apenas se estiver LONGE do portão", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: h < 50 ? 8 : 9, fontWeight: FontWeight.bold)))])), Positioned(left: _dragPosition, child: GestureDetector(onHorizontalDragUpdate: (details) => setState(() { _dragPosition += details.delta.dx; if (_dragPosition < 0) _dragPosition = 0; if (_dragPosition > maxDrag) _dragPosition = maxDrag; }), onHorizontalDragEnd: (_) { if (_dragPosition > maxDrag * 0.8) { widget.onSlid(); setState(() => _dragPosition = 0.0); } else setState(() => _dragPosition = 0.0); }, child: Container(height: h, width: h, decoration: BoxDecoration(color: corBotaoAtual, shape: BoxShape.circle, boxShadow: [BoxShadow(color: corSombra, blurRadius: blurSombra, spreadRadius: progresso * 5)]), child: Icon(Icons.cloud, color: progresso > 0.6 ? Colors.black87 : colorScheme.onPrimary, size: h * 0.4))))]));
+      
+      if (widget.onBluetoothPressed != null) {
+        return Row(children: [
+          Expanded(child: slider),
+          const SizedBox(width: 20),
+          Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+            GestureDetector(onTap: widget.onBluetoothPressed, child: Container(height: h, width: h, decoration: BoxDecoration(gradient: const LinearGradient(colors: [Colors.blue, Colors.lightBlueAccent], begin: Alignment.topLeft, end: Alignment.bottomRight), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2), boxShadow: [BoxShadow(color: Colors.blueAccent.withValues(alpha:0.6), blurRadius: 12, spreadRadius: 2)]), child: Icon(Icons.bluetooth, color: Colors.white, size: h * 0.4))),
+            Positioned(bottom: -8, child: IgnorePointer(child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.orange.shade700, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white, width: 1.5), boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 4)]), child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.bolt, color: Colors.white, size: 12), Text("RÁPIDO", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1))]))))
+          ])
+        ]);
+      }
+      return slider;
     });
   }
 }
